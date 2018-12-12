@@ -22,7 +22,8 @@ import expect from 'expect.js';
 import ngMock from 'ng_mock';
 import { encode as encodeRison } from 'rison-node';
 import '../../private';
-import { fatalErrorInternals, toastNotifications } from '../../notify';
+import { toastNotifications } from '../../notify';
+import * as FatalErrorNS from '../../notify/fatal_error';
 import { StateProvider } from '../state';
 import {
   unhashQueryString,
@@ -36,6 +37,9 @@ import StubBrowserStorage from 'test_utils/stub_browser_storage';
 import { EventsProvider } from '../../events';
 
 describe('State Management', () => {
+  const sandbox = sinon.createSandbox();
+  afterEach(() => sandbox.restore());
+
   describe('Enabled', () => {
     let $rootScope;
     let $location;
@@ -289,13 +293,24 @@ describe('State Management', () => {
           expect(toastNotifications.list[0].title).to.match(/use the share functionality/i);
         });
 
-        it('throws error linking to github when setting item fails', () => {
+        it.skip('triggers fatal error linking to github when setting item fails', () => {
+          // NOTE: this test needs to be written in jest and removed from the browser ones
+          // More info could be read in the opened issue:
+          // https://github.com/elastic/kibana/issues/22751
           const { state, hashedItemStore } = setup({ storeInHash: true });
-          sinon.stub(fatalErrorInternals, 'show');
-          sinon.stub(hashedItemStore, 'setItem').returns(false);
-          expect(() => {
-            state.toQueryParam();
-          }).to.throwError(/github\.com/);
+          const fatalErrorStub = sandbox.stub();
+          Object.defineProperty(FatalErrorNS, 'fatalError', {
+            writable: true,
+            value: fatalErrorStub
+          });
+
+          sandbox.stub(hashedItemStore, 'setItem').returns(false);
+          state.toQueryParam();
+          sinon.assert.calledOnce(fatalErrorStub);
+          sinon.assert.calledWith(fatalErrorStub, sinon.match(error => (
+            error instanceof Error &&
+            error.message.includes('github.com'))
+          ));
         });
 
         it('translateHashToRison should gracefully fallback if parameter can not be parsed', () => {

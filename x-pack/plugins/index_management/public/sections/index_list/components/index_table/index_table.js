@@ -4,7 +4,9 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-import React, { Component } from 'react';
+import React, { Component, Fragment } from 'react';
+import { i18n } from '@kbn/i18n';
+import { FormattedMessage, injectI18n } from '@kbn/i18n/react';
 import { Route } from 'react-router-dom';
 import { NoMatch } from '../../../no_match';
 import { healthToColor } from '../../../../services';
@@ -12,14 +14,15 @@ import { healthToColor } from '../../../../services';
 import '../../../../styles/table.less';
 
 import {
+  EuiCallOut,
   EuiHealth,
   EuiLink,
   EuiCheckbox,
-  EuiFieldSearch,
   EuiFlexGroup,
   EuiFlexItem,
   EuiPage,
   EuiSpacer,
+  EuiSearchBar,
   EuiSwitch,
   EuiTable,
   EuiTableBody,
@@ -33,37 +36,115 @@ import {
   EuiTitle,
   EuiText,
   EuiPageBody,
-  EuiPageContent
+  EuiPageContent,
 } from '@elastic/eui';
 
 import { IndexActionsContextMenu } from '../../components';
+import { getBannerExtensions, getFilterExtensions } from '../../../../index_management_extensions';
 
 const HEADERS = {
-  name: 'Name',
-  health: 'Health',
-  status: 'Status',
-  primary: 'Primaries',
-  replica: 'Replicas',
-  documents: 'Docs count',
-  size: 'Storage size',
-  primary_size: 'Primary storage size'
+  name: i18n.translate('xpack.idxMgmt.indexTable.headers.nameHeader', {
+    defaultMessage: 'Name',
+  }),
+  health: i18n.translate('xpack.idxMgmt.indexTable.headers.healthHeader', {
+    defaultMessage: 'Health',
+  }),
+  status: i18n.translate('xpack.idxMgmt.indexTable.headers.statusHeader', {
+    defaultMessage: 'Status',
+  }),
+  primary: i18n.translate('xpack.idxMgmt.indexTable.headers.primaryHeader', {
+    defaultMessage: 'Primaries',
+  }),
+  replica: i18n.translate('xpack.idxMgmt.indexTable.headers.replicaHeader', {
+    defaultMessage: 'Replicas',
+  }),
+  documents: i18n.translate('xpack.idxMgmt.indexTable.headers.documentsHeader', {
+    defaultMessage: 'Docs count',
+  }),
+  size: i18n.translate('xpack.idxMgmt.indexTable.headers.storageSizeHeader', {
+    defaultMessage: 'Storage size',
+  }),
 };
 
-export class IndexTable extends Component {
+export class IndexTableUi extends Component {
+  static getDerivedStateFromProps(props, state) {
+    // Deselct any indices which no longer exist, e.g. they've been deleted.
+    const { selectedIndicesMap } = state;
+    const indexNames = props.indices.map(index => index.name);
+    const selectedIndexNames = Object.keys(selectedIndicesMap);
+    const missingIndexNames = selectedIndexNames.filter(selectedIndexName => {
+      return !indexNames.includes(selectedIndexName);
+    });
+
+    if (missingIndexNames.length) {
+      const newMap = { ...selectedIndicesMap };
+      missingIndexNames.forEach(missingIndexName => delete newMap[missingIndexName]);
+      return { selectedIndicesMap: newMap };
+    }
+
+    return null;
+  }
+
   constructor(props) {
     super(props);
 
     this.state = {
-      selectedIndicesMap: {}
+      selectedIndicesMap: {},
     };
   }
-
+  componentDidMount() {
+    const {
+      filterChanged,
+      filterFromURI
+    } = this.props;
+    if (filterFromURI) {
+      const decodedFilter = decodeURIComponent(filterFromURI);
+      filterChanged(EuiSearchBar.Query.parse(decodedFilter));
+    }
+  }
   onSort = column => {
     const { sortField, isSortAscending, sortChanged } = this.props;
 
     const newIsSortAscending = sortField === column ? !isSortAscending : true;
     sortChanged(column, newIsSortAscending);
   };
+  renderFilterError() {
+    const { intl } = this.props;
+    const { filterError } = this.state;
+    if (!filterError) {
+      return;
+    }
+    return (
+      <Fragment>
+        <EuiCallOut
+          iconType="faceSad"
+          color="danger"
+          title={intl.formatMessage({
+            id: 'xpack.idxMgmt.indexTable.invalidSearchErrorMessage',
+            defaultMessage: 'Invalid search: {errorMessage}',
+          }, {
+            errorMessage: filterError.message
+          })}
+        />
+        <EuiSpacer size="l"/>
+      </Fragment>
+    );
+  }
+  onFilterChanged = ({ query, error }) => {
+    if (error) {
+      this.setState({ filterError: error });
+    } else {
+      this.props.filterChanged(query);
+      this.setState({ filterError: null });
+    }
+  }
+  getFilters = () => {
+    const { allIndices } = this.props;
+    return getFilterExtensions().reduce((accum, filterExtension) => {
+      const filtersToAdd = filterExtension(allIndices);
+      return [...accum, ...filtersToAdd];
+    }, []);
+  }
   toggleAll = () => {
     const allSelected = this.areAllItemsSelected();
     if (allSelected) {
@@ -75,9 +156,10 @@ export class IndexTable extends Component {
       selectedIndicesMap[name] = true;
     });
     this.setState({
-      selectedIndicesMap
+      selectedIndicesMap,
     });
   };
+
   toggleItem = name => {
     this.setState(({ selectedIndicesMap }) => {
       const newMap = { ...selectedIndicesMap };
@@ -87,19 +169,18 @@ export class IndexTable extends Component {
         newMap[name] = true;
       }
       return {
-        selectedIndicesMap: newMap
+        selectedIndicesMap: newMap,
       };
     });
   };
+
   isItemSelected = name => {
     return !!this.state.selectedIndicesMap[name];
   };
 
   areAllItemsSelected = () => {
     const { indices } = this.props;
-    const indexOfUnselectedItem = indices.findIndex(
-      index => !this.isItemSelected(index.name)
-    );
+    const indexOfUnselectedItem = indices.findIndex(index => !this.isItemSelected(index.name));
     return indexOfUnselectedItem === -1;
   };
 
@@ -129,7 +210,7 @@ export class IndexTable extends Component {
     } else if (fieldName === 'name') {
       return (
         <EuiLink
-          className="indexTable__link"
+          className="indTable__link"
           data-test-subj="indexTableIndexNameLink"
           onClick={() => {
             openDetailPanel(value);
@@ -141,6 +222,7 @@ export class IndexTable extends Component {
     }
     return value;
   }
+
   buildRowCells(index) {
     return Object.keys(HEADERS).map(fieldName => {
       const { name } = index;
@@ -156,15 +238,50 @@ export class IndexTable extends Component {
       );
     });
   }
+  renderBanners() {
+    const { allIndices = [], filterChanged } = this.props;
+    return getBannerExtensions().map((bannerExtension, i) => {
+      const bannerData = bannerExtension(allIndices);
+      if (!bannerData) {
+        return null;
+      }
+
+      const {
+        type,
+        title,
+        message,
+        filter,
+        filterLabel,
+      } = bannerData;
+
+      return (
+        <Fragment key={`bannerExtension${i}`}>
+          <EuiCallOut
+            color={type}
+            size="m"
+            title={title}
+          >
+            <EuiText>
+              {message}
+              {filter ? (
+                <EuiLink onClick={() => filterChanged(filter)}>
+                  {filterLabel}
+                </EuiLink>
+              ) : null}
+            </EuiText>
+          </EuiCallOut>
+          <EuiSpacer size="m" />
+        </Fragment>
+      );
+    });
+  }
   buildRows() {
     const { indices = [], detailPanelIndexName } = this.props;
     return indices.map(index => {
       const { name } = index;
       return (
         <EuiTableRow
-          isSelected={
-            this.isItemSelected(name) || name === detailPanelIndexName
-          }
+          isSelected={this.isItemSelected(name) || name === detailPanelIndexName}
           key={`${name}-row`}
         >
           <EuiTableRowCellCheckbox key={`checkbox-${name}`}>
@@ -203,17 +320,15 @@ export class IndexTable extends Component {
   };
 
   render() {
-
     const {
-      filterChanged,
       filter,
       showSystemIndices,
       showSystemIndicesChanged,
-      indices
+      indices,
+      intl,
     } = this.props;
     const { selectedIndicesMap } = this.state;
     const atLeastOneItemSelected = Object.keys(selectedIndicesMap).length > 0;
-
     return (
       <EuiPage>
         <EuiPageBody>
@@ -221,11 +336,21 @@ export class IndexTable extends Component {
             <EuiFlexGroup justifyContent="spaceBetween" alignItems="flexEnd">
               <EuiFlexItem grow={false}>
                 <EuiTitle size="l">
-                  <h1>Index management</h1>
+                  <h1>
+                    <FormattedMessage
+                      id="xpack.idxMgmt.indexTable.sectionHeading"
+                      defaultMessage="Index management"
+                    />
+                  </h1>
                 </EuiTitle>
                 <EuiSpacer size="s" />
                 <EuiText>
-                  <p>Update your Elasticsearch indices individually or in bulk</p>
+                  <p>
+                    <FormattedMessage
+                      id="xpack.idxMgmt.indexTable.sectionDescription"
+                      defaultMessage="Update your Elasticsearch indices individually or in bulk."
+                    />
+                  </p>
                 </EuiText>
               </EuiFlexItem>
               <EuiFlexItem grow={false}>
@@ -233,11 +358,17 @@ export class IndexTable extends Component {
                   id="checkboxShowSystemIndices"
                   checked={showSystemIndices}
                   onChange={event => showSystemIndicesChanged(event.target.checked)}
-                  label="Include system indices"
+                  label={
+                    <FormattedMessage
+                      id="xpack.idxMgmt.indexTable.systemIndicesSwitchLabel"
+                      defaultMessage="Include system indices"
+                    />
+                  }
                 />
               </EuiFlexItem>
             </EuiFlexGroup>
             <EuiSpacer />
+            {this.renderBanners()}
             <EuiFlexGroup gutterSize="l" alignItems="center">
               {atLeastOneItemSelected ? (
                 <EuiFlexItem grow={false}>
@@ -255,19 +386,28 @@ export class IndexTable extends Component {
                 </EuiFlexItem>
               ) : null}
               <EuiFlexItem>
-                <EuiFieldSearch
-                  fullWidth
-                  value={filter}
-                  onChange={event => {
-                    filterChanged(event.target.value);
-                  }}
+                <EuiSearchBar
+                  filters={this.getFilters()}
+                  defaultQuery={filter}
+                  query={filter}
+                  box={{
+                    incremental: true,
+                    placeholder: intl.formatMessage({
+                      id: 'xpack.idxMgmt.indexTable.systemIndicesSearchInputPlaceholder',
+                      defaultMessage: 'Search',
+                    }) }
+                  }
+                  aria-label={intl.formatMessage({
+                    id: 'xpack.idxMgmt.indexTable.systemIndicesSearchIndicesAriaLabel',
+                    defaultMessage: 'Search indices',
+                  })}
                   data-test-subj="indexTableFilterInput"
-                  placeholder="Search"
-                  aria-label="Search indices"
+
+                  onChange={this.onFilterChanged}
                 />
               </EuiFlexItem>
             </EuiFlexGroup>
-
+            {this.renderFilterError()}
             <EuiSpacer size="m" />
 
             {indices.length > 0 ? (
@@ -296,3 +436,5 @@ export class IndexTable extends Component {
     );
   }
 }
+
+export const IndexTable = injectI18n(IndexTableUi);

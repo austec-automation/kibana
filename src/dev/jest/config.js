@@ -21,16 +21,17 @@ export default {
   rootDir: '../../..',
   roots: [
     '<rootDir>/src/ui',
-    '<rootDir>/src/core_plugins',
+    '<rootDir>/src/core',
+    '<rootDir>/src/legacy/core_plugins',
     '<rootDir>/src/server',
     '<rootDir>/src/cli',
     '<rootDir>/src/cli_keystore',
     '<rootDir>/src/cli_plugin',
+    '<rootDir>/src/functional_test_runner',
     '<rootDir>/src/dev',
     '<rootDir>/src/utils',
     '<rootDir>/src/setup_node_env',
     '<rootDir>/packages',
-    '<rootDir>/src/core',
   ],
   collectCoverageFrom: [
     'packages/kbn-ui-framework/src/components/**/*.js',
@@ -48,6 +49,7 @@ export default {
   },
   setupFiles: [
     '<rootDir>/src/dev/jest/setup/babel_polyfill.js',
+    '<rootDir>/src/dev/jest/setup/polyfills.js',
     '<rootDir>/src/dev/jest/setup/enzyme.js',
     '<rootDir>/src/dev/jest/setup/throw_on_console_error.js',
   ],

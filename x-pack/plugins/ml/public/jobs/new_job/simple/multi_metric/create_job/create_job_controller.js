@@ -8,18 +8,18 @@
 
 import _ from 'lodash';
 
-import 'plugins/kibana/visualize/styles/main.less';
 import { aggTypes } from 'ui/agg_types';
 import { addJobValidationMethods } from 'plugins/ml/../common/util/validation_utils';
 import { parseInterval } from 'plugins/ml/../common/util/parse_interval';
 
-import dateMath from '@kbn/datemath';
+import dateMath from '@elastic/datemath';
 import angular from 'angular';
 
 import uiRoutes from 'ui/routes';
 import { checkLicenseExpired } from 'plugins/ml/license/check_license';
 import { checkCreateJobsPrivilege } from 'plugins/ml/privilege/check_privilege';
 import { IntervalHelperProvider } from 'plugins/ml/util/ml_time_buckets';
+import { getCreateMultiMetricJobBreadcrumbs } from 'plugins/ml/jobs/breadcrumbs';
 import { filterAggTypes } from 'plugins/ml/jobs/new_job/simple/components/utils/filter_agg_types';
 import { validateJob } from 'plugins/ml/jobs/new_job/simple/components/utils/validate_job';
 import { adjustIntervalDisplayed } from 'plugins/ml/jobs/new_job/simple/components/utils/adjust_interval';
@@ -31,9 +31,10 @@ import { checkMlNodesAvailable } from 'plugins/ml/ml_nodes_check/check_ml_nodes'
 import { loadNewJobDefaults } from 'plugins/ml/jobs/new_job/utils/new_job_defaults';
 import { mlEscape } from 'plugins/ml/util/string_utils';
 import {
-  createSearchItems,
+  SearchItemsProvider,
   addNewJobToRecentlyAccessed,
-  moveToAdvancedJobCreationProvider } from 'plugins/ml/jobs/new_job/utils/new_job_utils';
+  moveToAdvancedJobCreationProvider,
+  focusOnResultsLink } from 'plugins/ml/jobs/new_job/utils/new_job_utils';
 import { mlJobService } from 'plugins/ml/services/job_service';
 import { preLoadJob } from 'plugins/ml/jobs/new_job/simple/components/utils/prepopulate_job_settings';
 import { MultiMetricJobServiceProvider } from './create_job_service';
@@ -47,6 +48,7 @@ import { timefilter } from 'ui/timefilter';
 uiRoutes
   .when('/jobs/new_job/simple/multi_metric', {
     template,
+    k7Breadcrumbs: getCreateMultiMetricJobBreadcrumbs,
     resolve: {
       CheckLicense: checkLicenseExpired,
       privileges: checkCreateJobsPrivilege,
@@ -64,7 +66,7 @@ const module = uiModules.get('apps/ml');
 module
   .controller('MlCreateMultiMetricJob', function (
     $scope,
-    $route,
+    $timeout,
     Private,
     AppState) {
 
@@ -108,12 +110,13 @@ module
     // flag to stop all results polling if the user navigates away from this page
     let globalForceStop = false;
 
+    const createSearchItems = Private(SearchItemsProvider);
     const {
       indexPattern,
       savedSearch,
       query,
       filters,
-      combinedQuery } = createSearchItems($route);
+      combinedQuery } = createSearchItems();
 
     timeBasedIndexCheck(indexPattern, true);
 
@@ -129,6 +132,7 @@ module
       formValid: false,
       bucketSpanValid: true,
       bucketSpanEstimator: { status: 0, message: '' },
+      cardinalityValidator: { status: 0, message: '' },
       aggTypeOptions: filterAggTypes(aggTypes.byType[METRIC_AGG_TYPE]),
       fields: [],
       splitFields: [],
@@ -197,10 +201,12 @@ module
       query,
       filters,
       combinedQuery,
+      usesSavedSearch: (savedSearch.id !== undefined),
       jobId: '',
       description: '',
       jobGroups: [],
       useDedicatedIndex: false,
+      enableModelPlot: false,
       isSparseData: false,
       modelMemoryLimit: DEFAULT_MODEL_MEMORY_LIMIT
     };
@@ -368,7 +374,6 @@ module
       const $frontCard = angular.element('.multi-metric-job-container .detector-container .card-front');
       $frontCard.addClass('card');
       $frontCard.find('.card-title').text(labels[0]);
-      const w = $frontCard.width();
 
       let marginTop = (labels.length > 1) ? 54 : 0;
       $frontCard.css('margin-top', marginTop);
@@ -384,33 +389,23 @@ module
       angular.element('.card-behind').remove();
 
       for (let i = 0; i < labels.length; i++) {
-        let el = '<div class="card card-behind"><div class="card-title">';
+        let el = `<div class="card card-behind card-behind-${i}"><div class="card-title">`;
         el += mlEscape(labels[i]);
         el += '</div><label class="kuiFormLabel">';
         el += mlEscape(backCardTitle);
         el += '</label></div>';
 
         const $backCard = angular.element(el);
-        $backCard.css('width', w);
-        $backCard.css('height', 100);
-        $backCard.css('display', 'auto');
         $backCard.css('z-index', (9 - i));
 
         $backCard.insertBefore($frontCard);
       }
 
       const cardsBehind = angular.element('.card-behind');
-      let marginLeft = 0;
-      let backWidth = w;
 
       for (let i = 0; i < cardsBehind.length; i++) {
         cardsBehind[i].style.marginTop = marginTop + 'px';
-        cardsBehind[i].style.marginLeft = marginLeft + 'px';
-        cardsBehind[i].style.width = backWidth + 'px';
-
         marginTop -= (10 - (i * (10 / labels.length))) * (10 / labels.length);
-        marginLeft += (5 - (i / 2));
-        backWidth -= (5 - (i / 2)) * 2;
       }
       let i = 0;
       let then = window.performance.now();
@@ -507,6 +502,8 @@ module
                     $scope.formConfig.end,
                     'explorer');
 
+                  focusOnResultsLink('job_running_view_results_link', $timeout);
+
                   loadCharts();
                 })
                 .catch((resp) => {
@@ -520,6 +517,9 @@ module
           });
       }
     };
+
+    // expose this function so it can be used in the enable model plot checkbox directive
+    $scope.getJobFromConfig = mlMultiMetricJobService.getJobFromConfig;
 
     addJobValidationMethods($scope, mlMultiMetricJobService);
 
@@ -559,6 +559,7 @@ module
                   }
                 } else {
                   $scope.jobState = JOB_STATE.FINISHED;
+                  focusOnResultsLink('job_finished_view_results_link', $timeout);
                 }
                 jobCheck();
               });
@@ -643,7 +644,7 @@ module
       ml.calculateModelMemoryLimit({
         indexPattern: formConfig.indexPattern.title,
         splitFieldName: formConfig.splitField.name,
-        query: formConfig.query,
+        query: formConfig.combinedQuery,
         fieldNames: Object.keys(formConfig.fields),
         influencerNames: formConfig.influencerFields.map(f => f.name),
         timeFieldName: formConfig.timeField,
@@ -657,21 +658,6 @@ module
           formConfig.modelMemoryLimit = DEFAULT_MODEL_MEMORY_LIMIT;
         });
     };
-
-    // resize the spilt cards on page resize.
-    // when the job starts the 'Analysis running' label appearing can cause a scroll bar to appear
-    // which will cause the split cards to look odd
-    // TODO - all charts should resize correctly on page resize
-    function resize() {
-      if ($scope.formConfig.splitField !== undefined) {
-        let width = angular.element('.card-front').width();
-        const cardsBehind = angular.element('.card-behind');
-        for (let i = 0; i < cardsBehind.length; i++) {
-          cardsBehind[i].style.width = width + 'px';
-          width -= (5 - (i / 2)) * 2;
-        }
-      }
-    }
 
     $scope.setFullTimeRange = function () {
       return mlFullTimeRangeSelectorService.setFullTimeRange($scope.ui.indexPattern, $scope.formConfig.combinedQuery);
@@ -691,10 +677,6 @@ module
       if ($scope.formConfig.splitField !== undefined) {
         $scope.setModelMemoryLimit();
       }
-    });
-
-    angular.element(window).resize(() => {
-      resize();
     });
 
     $scope.$on('$destroy', () => {

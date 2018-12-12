@@ -33,11 +33,16 @@ class Timefilter extends SimpleEmitter {
     this.isTimeRangeSelectorEnabled = false;
     this.isAutoRefreshSelectorEnabled = false;
     this._time = chrome.getUiSettingsClient().get('timepicker:timeDefaults');
-    this._refreshInterval = chrome.getUiSettingsClient().get('timepicker:refreshIntervalDefaults');
+    this.setRefreshInterval(chrome.getUiSettingsClient().get('timepicker:refreshIntervalDefaults'));
   }
 
   getTime = () => {
-    return _.clone(this._time);
+    const { from, to } = this._time;
+    return {
+      ...this._time,
+      from: moment.isMoment(from) ? from.toISOString() : from,
+      to: moment.isMoment(to) ? to.toISOString() : to
+    };
   }
 
   /**
@@ -74,16 +79,20 @@ class Timefilter extends SimpleEmitter {
    * @property {boolean} time.pause
    */
   setRefreshInterval = (refreshInterval) => {
-    // Object.assign used for partially composed updates
-    const newRefreshInterval = Object.assign(this.getRefreshInterval(), refreshInterval);
-    if (newRefreshInterval.value < 0) {
+    const prevRefreshInterval = this.getRefreshInterval();
+    const newRefreshInterval = { ...prevRefreshInterval, ...refreshInterval };
+    // If the refresh interval is <= 0 handle that as a paused refresh
+    if (newRefreshInterval.value <= 0) {
       newRefreshInterval.value = 0;
+      newRefreshInterval.pause = true;
     }
-    if (areTimePickerValsDifferent(this.getRefreshInterval(), newRefreshInterval)) {
-      this._refreshInterval = {
-        value: newRefreshInterval.value,
-        pause: newRefreshInterval.pause
-      };
+    this._refreshInterval = {
+      value: newRefreshInterval.value,
+      pause: newRefreshInterval.pause
+    };
+    // Only send out an event if we already had a previous refresh interval (not for the initial set)
+    // and the old and new refresh interval are actually different.
+    if (prevRefreshInterval && areTimePickerValsDifferent(prevRefreshInterval, newRefreshInterval)) {
       this.emit('refreshIntervalUpdate');
       if (!newRefreshInterval.pause && newRefreshInterval.value !== 0) {
         this.emit('fetch');
@@ -174,7 +183,7 @@ function convertISO8601(stringTime) {
 // and require it to be executed to properly function.
 // This function is exposed for applications that do not use uiRoutes like APM
 // Kibana issue https://github.com/elastic/kibana/issues/19110 tracks the removal of this dependency on uiRouter
-export const registerTimefilterWithGlobalState = _.once((globalState) => {
+export const registerTimefilterWithGlobalState = _.once((globalState, $rootScope) => {
   const uiSettings = chrome.getUiSettingsClient();
   const timeDefaults = uiSettings.get('timepicker:timeDefaults');
   const refreshIntervalDefaults = uiSettings.get('timepicker:refreshIntervalDefaults');
@@ -195,9 +204,19 @@ export const registerTimefilterWithGlobalState = _.once((globalState) => {
     timefilter.setTime(newTime);
     timefilter.setRefreshInterval(newRefreshInterval);
   });
+
+  const updateGlobalStateWithTime = () => {
+    globalState.time = timefilter.getTime();
+    globalState.refreshInterval = timefilter.getRefreshInterval();
+    globalState.save();
+  };
+
+  $rootScope.$listenAndDigestAsync(timefilter, 'refreshIntervalUpdate', updateGlobalStateWithTime);
+
+  $rootScope.$listenAndDigestAsync(timefilter, 'timeUpdate', updateGlobalStateWithTime);
 });
 
 uiRoutes
-  .addSetupWork((globalState) => {
-    return registerTimefilterWithGlobalState(globalState);
+  .addSetupWork((globalState, $rootScope) => {
+    return registerTimefilterWithGlobalState(globalState, $rootScope);
   });

@@ -7,7 +7,7 @@
 import React from 'react';
 import { createSelector } from 'reselect';
 import { Request } from 'react-redux-request';
-import { loadTransactionList } from '../../services/rest/apm';
+import { loadTransactionList } from '../../services/rest/apm/transaction_groups';
 import { createInitialDataSelector } from './helpers';
 
 const ID = 'transactionList';
@@ -15,7 +15,10 @@ const INITIAL_DATA = [];
 const withInitialData = createInitialDataSelector(INITIAL_DATA);
 
 const getRelativeImpact = (impact, impactMin, impactMax) =>
-  Math.max((impact - impactMin) / Math.max(impactMax - impactMin, 1) * 100, 1);
+  Math.max(
+    ((impact - impactMin) / Math.max(impactMax - impactMin, 1)) * 100,
+    1
+  );
 
 function getWithRelativeImpact(items) {
   const impacts = items.map(({ impact }) => impact);

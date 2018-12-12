@@ -19,10 +19,11 @@
 
 jest.mock('ui/chrome',
   () => ({
+    getBasePath: () => `/some/base/path`,
     getUiSettingsClient: () => {
       return {
         get: (key) => {
-          switch(key) {
+          switch (key) {
             case 'timepicker:timeDefaults':
               return { from: 'now-15m', to: 'now', mode: 'quick' };
             case 'timepicker:refreshIntervalDefaults':
@@ -47,6 +48,7 @@ jest.mock('ui/timefilter/lib/parse_querystring',
 
 import sinon from 'sinon';
 import expect from 'expect.js';
+import moment from 'moment';
 import { timefilter } from './timefilter';
 
 function stubNowTime(nowTime) {
@@ -100,6 +102,17 @@ describe('setTime', () => {
     expect(update.called).to.be(true);
     expect(fetch.called).to.be(true);
   });
+
+  test('should return strings and not moment objects', () => {
+    const from = moment().subtract(15, 'minutes');
+    const to = moment();
+    timefilter.setTime({ to, from, mode: 'absolute' });
+    expect(timefilter.getTime()).to.eql({
+      from: from.toISOString(),
+      to: to.toISOString(),
+      mode: 'absolute'
+    });
+  });
 });
 
 describe('setRefreshInterval', () => {
@@ -107,7 +120,7 @@ describe('setRefreshInterval', () => {
   let update;
   let fetch;
 
-  beforeEach(()  => {
+  beforeEach(() => {
     update = sinon.spy();
     fetch = sinon.spy();
     timefilter.setRefreshInterval({
@@ -131,7 +144,17 @@ describe('setRefreshInterval', () => {
 
   test('should allow partial updates to refresh interval', () => {
     timefilter.setRefreshInterval({ value: 10 });
-    expect(timefilter.getRefreshInterval()).to.eql({ pause: false, value: 10 });
+    expect(timefilter.getRefreshInterval()).to.eql({ pause: true, value: 10 });
+  });
+
+  test('should not allow negative intervals', () => {
+    timefilter.setRefreshInterval({ value: -10 });
+    expect(timefilter.getRefreshInterval()).to.eql({ pause: true, value: 0 });
+  });
+
+  test('should set pause to true when interval is zero', () => {
+    timefilter.setRefreshInterval({ value: 0, pause: false });
+    expect(timefilter.getRefreshInterval()).to.eql({ pause: true, value: 0 });
   });
 
   test('not emit anything if nothing has changed', () => {
@@ -181,7 +204,7 @@ describe('setRefreshInterval', () => {
 describe('isTimeRangeSelectorEnabled', () => {
   let update;
 
-  beforeEach(()  => {
+  beforeEach(() => {
     update = sinon.spy();
     timefilter.on('enabledUpdated', update);
   });
@@ -202,7 +225,7 @@ describe('isTimeRangeSelectorEnabled', () => {
 describe('isAutoRefreshSelectorEnabled', () => {
   let update;
 
-  beforeEach(()  => {
+  beforeEach(() => {
     update = sinon.spy();
     timefilter.on('enabledUpdated', update);
   });

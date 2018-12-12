@@ -20,8 +20,8 @@ export function jobAuditMessagesProvider(callWithRequest) {
     let gte = null;
     if (jobId !== undefined && from === undefined) {
       const jobs = await callWithRequest('ml.jobs', { jobId });
-      if (jobs.length) {
-        gte = moment(jobs[0].create_time).valueOf();
+      if (jobs.count > 0 && jobs.jobs !== undefined) {
+        gte = moment(jobs.jobs[0].create_time).valueOf();
       }
     } else if (from !== undefined) {
       gte = `now-${from}`;
@@ -80,6 +80,7 @@ export function jobAuditMessagesProvider(callWithRequest) {
       const resp = await callWithRequest('search', {
         index: ML_NOTIFICATION_INDEX_PATTERN,
         ignore_unavailable: true,
+        rest_total_hits_as_int: true,
         size: SIZE,
         body:
         {
@@ -107,6 +108,7 @@ export function jobAuditMessagesProvider(callWithRequest) {
       const resp = await callWithRequest('search', {
         index: ML_NOTIFICATION_INDEX_PATTERN,
         ignore_unavailable: true,
+        rest_total_hits_as_int: true,
         size: 0,
         body: {
           query: {

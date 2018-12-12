@@ -12,7 +12,8 @@ import ReactDOM from 'react-dom';
 import { uiModules } from 'ui/modules';
 const module = uiModules.get('apps/ml', ['react']);
 
-import { checkLicense } from 'plugins/ml/license/check_license';
+import { getFilterListsBreadcrumbs } from '../../breadcrumbs';
+import { checkFullLicense } from 'plugins/ml/license/check_license';
 import { checkGetJobsPrivilege } from 'plugins/ml/privilege/check_privilege';
 import { getMlNodeCount } from 'plugins/ml/ml_nodes_check/check_ml_nodes';
 import { initPromise } from 'plugins/ml/util/promise';
@@ -29,8 +30,9 @@ const template = `
 uiRoutes
   .when('/settings/filter_lists', {
     template,
+    k7Breadcrumbs: getFilterListsBreadcrumbs,
     resolve: {
-      CheckLicense: checkLicense,
+      CheckLicense: checkFullLicense,
       privileges: checkGetJobsPrivilege,
       mlNodeCount: getMlNodeCount,
       initPromise: initPromise(false)
