@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import expect from 'expect.js';
+import expect from '@kbn/expect';
 import * as is from '../is';
 import { nodeTypes } from '../../node_types';
 import indexPatternResponse from '../../../__fixtures__/index_pattern_response.json';
@@ -143,6 +143,21 @@ describe('kuery functions', function () {
         expect(result).to.eql(expected);
       });
 
+      it('should return an ES match query when a concrete fieldName and value are provided without an index pattern', function () {
+        const expected = {
+          bool: {
+            should: [
+              { match: { extension: 'jpg' } },
+            ],
+            minimum_should_match: 1
+          }
+        };
+
+        const node = nodeTypes.function.buildNode('is', 'extension', 'jpg');
+        const result = is.toElasticsearchQuery(node);
+        expect(result).to.eql(expected);
+      });
+
       it('should support creation of phrase queries', function () {
         const expected = {
           bool: {
@@ -184,6 +199,112 @@ describe('kuery functions', function () {
         expect(result.bool.should[0]).to.have.key('script');
       });
 
+      it('should support date fields without a dateFormat provided', function () {
+        const expected = {
+          bool: {
+            should: [
+              {
+                range: {
+                  '@timestamp': {
+                    gte: '2018-04-03T19:04:17',
+                    lte: '2018-04-03T19:04:17',
+                  }
+                }
+              }
+            ],
+            minimum_should_match: 1
+          }
+        };
+
+        const node = nodeTypes.function.buildNode('is', '@timestamp', '"2018-04-03T19:04:17"');
+        const result = is.toElasticsearchQuery(node, indexPattern);
+        expect(result).to.eql(expected);
+      });
+
+      it('should support date fields with a dateFormat provided', function () {
+        const config = { dateFormatTZ: 'America/Phoenix' };
+        const expected = {
+          bool: {
+            should: [
+              {
+                range: {
+                  '@timestamp': {
+                    gte: '2018-04-03T19:04:17',
+                    lte: '2018-04-03T19:04:17',
+                    time_zone: 'America/Phoenix',
+                  }
+                }
+              }
+            ],
+            minimum_should_match: 1
+          }
+        };
+
+        const node = nodeTypes.function.buildNode('is', '@timestamp', '"2018-04-03T19:04:17"');
+        const result = is.toElasticsearchQuery(node, indexPattern, config);
+        expect(result).to.eql(expected);
+      });
+
+      it('should use a provided nested context to create a full field name', function () {
+        const expected = {
+          bool: {
+            should: [
+              { match: { 'nestedField.extension': 'jpg' } },
+            ],
+            minimum_should_match: 1
+          }
+        };
+
+        const node = nodeTypes.function.buildNode('is', 'extension', 'jpg');
+        const result = is.toElasticsearchQuery(
+          node,
+          indexPattern,
+          {},
+          { nested: { path: 'nestedField' } }
+        );
+        expect(result).to.eql(expected);
+      });
+
+      it('should support wildcard field names', function () {
+        const expected = {
+          bool: {
+            should: [
+              { match: { extension: 'jpg' } },
+            ],
+            minimum_should_match: 1
+          }
+        };
+
+        const node = nodeTypes.function.buildNode('is', 'ext*', 'jpg');
+        const result = is.toElasticsearchQuery(node, indexPattern);
+        expect(result).to.eql(expected);
+      });
+
+      it('should automatically add a nested query when a wildcard field name covers a nested field', () => {
+        const expected = {
+          bool: {
+            should: [
+              {
+                nested: {
+                  path: 'nestedField.nestedChild',
+                  query: {
+                    match: {
+                      'nestedField.nestedChild.doublyNestedChild': 'foo'
+                    }
+                  },
+                  score_mode: 'none'
+                }
+              }
+            ],
+            minimum_should_match: 1
+          }
+        };
+
+
+        const node = nodeTypes.function.buildNode('is', '*doublyNested*', 'foo');
+        const result = is.toElasticsearchQuery(node, indexPattern);
+        expect(result).to.eql(expected);
+      });
     });
   });
 });

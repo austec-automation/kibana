@@ -17,14 +17,15 @@
  * under the License.
  */
 
-import { castEsToKbnFieldTypeName } from '../utils';
-import { shouldReadFieldFromDocValues } from '../server/index_patterns/service/lib/field_capabilities/should_read_field_from_doc_values';
+import { castEsToKbnFieldTypeName } from '../plugins/data/common';
+// eslint-disable-next-line max-len
+import { shouldReadFieldFromDocValues } from '../plugins/data/server';
 
 function stubbedLogstashFields() {
   return [
     //                                  |aggregatable
     //                                  |      |searchable
-    // name               esType        |      |      |metadata
+    // name               esType        |      |      |metadata       | subType
     ['bytes',             'long',       true,  true,  { count: 10 } ],
     ['ssl',               'boolean',    true,  true,  { count: 20 } ],
     ['@timestamp',        'date',       true,  true,  { count: 30 } ],
@@ -38,9 +39,10 @@ function stubbedLogstashFields() {
     ['area',              'geo_shape',  true,  true ],
     ['hashed',            'murmur3',    false, true ],
     ['geo.coordinates',   'geo_point',  true,  true ],
-    ['extension',         'keyword',    true,  true ],
+    ['extension',         'text',       true,  true],
+    ['extension.keyword', 'keyword',    true,  true,   {},            { multi: { parent: 'extension' } } ],
     ['machine.os',        'text',       true,  true ],
-    ['machine.os.raw',    'keyword',    true,  true ],
+    ['machine.os.raw',    'keyword',    true,  true,   {},            { multi: { parent: 'machine.os' } } ],
     ['geo.src',           'keyword',    true,  true ],
     ['_id',               '_id',        true,  true ],
     ['_type',             '_type',      true,  true ],
@@ -58,7 +60,8 @@ function stubbedLogstashFields() {
       esType,
       aggregatable,
       searchable,
-      metadata = {}
+      metadata = {},
+      subType = undefined,
     ] = row;
 
     const {
@@ -75,6 +78,7 @@ function stubbedLogstashFields() {
     return {
       name,
       type,
+      esTypes: [esType],
       readFromDocValues: shouldReadFieldFromDocValues(aggregatable, esType),
       aggregatable,
       searchable,
@@ -82,6 +86,7 @@ function stubbedLogstashFields() {
       script,
       lang,
       scripted,
+      subType,
     };
   });
 }

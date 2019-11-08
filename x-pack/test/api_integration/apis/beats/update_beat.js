@@ -4,13 +4,13 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-import expect from 'expect.js';
-import { ES_INDEX_NAME, ES_TYPE_NAME } from './constants';
+import expect from '@kbn/expect';
+import { ES_INDEX_NAME } from './constants';
 import moment from 'moment';
 
 export default function ({ getService }) {
   const supertest = getService('supertest');
-  const chance = getService('chance');
+  const randomness = getService('randomness');
   const es = getService('es');
   const esArchiver = getService('esArchiver');
 
@@ -25,24 +25,24 @@ export default function ({ getService }) {
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
         'eyJjcmVhdGVkIjoiMjAxOC0wNi0zMFQwMzo0MjoxNS4yMzBaIiwiaWF0IjoxNTMwMzMwMTM1fQ.' +
         'SSsX2Byyo1B1bGxV8C3G4QldhE5iH87EY_1r21-bwbI';
+
       const version =
-        chance.integer({ min: 1, max: 10 }) +
+        randomness.integer({ min: 1, max: 10 }) +
         '.' +
-        chance.integer({ min: 1, max: 10 }) +
+        randomness.integer({ min: 1, max: 10 }) +
         '.' +
-        chance.integer({ min: 1, max: 10 });
+        randomness.integer({ min: 1, max: 10 });
 
       beat = {
-        type: `${chance.word()}beat`,
-        host_name: `www.${chance.word()}.net`,
-        name: chance.word(),
+        type: `${randomness.word()}beat`,
+        host_name: `www.${randomness.word()}.net`,
+        name: randomness.word(),
         version,
-        ephemeral_id: chance.word(),
+        ephemeral_id: randomness.word(),
       };
 
       await es.index({
         index: ES_INDEX_NAME,
-        type: ES_TYPE_NAME,
         id: `enrollment_token:${validEnrollmentToken}`,
         body: {
           type: 'enrollment_token',
@@ -63,13 +63,17 @@ export default function ({ getService }) {
       await supertest
         .put(`/api/beats/agent/${beatId}`)
         .set('kbn-xsrf', 'xxx')
-        .set('kbn-beats-access-token', validEnrollmentToken)
+        .set(
+          'kbn-beats-access-token',
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
+            'eyJjcmVhdGVkIjoiMjAxOC0wNi0zMFQwMzo0MjoxNS4yMzBaIiwiaWF0IjoxNTMwMzMwMTM1fQ.' +
+            'SSsX2Byyo1B1bGxV8C3G4QldhE5iH87EY_1r21-bwbI'
+        )
         .send(beat)
-        .expect(204);
+        .expect(200);
 
       const beatInEs = await es.get({
         index: ES_INDEX_NAME,
-        type: ES_TYPE_NAME,
         id: `beat:${beatId}`,
       });
 
@@ -86,15 +90,14 @@ export default function ({ getService }) {
       const { body } = await supertest
         .put(`/api/beats/agent/${beatId}`)
         .set('kbn-xsrf', 'xxx')
-        .set('kbn-beats-access-token', chance.word())
+        .set('kbn-beats-access-token', randomness.word())
         .send(beat)
         .expect(401);
 
-      expect(body.message).to.be('Invalid access token');
+      expect(body.error.message).to.be('Invalid access token');
 
       const beatInEs = await es.get({
         index: ES_INDEX_NAME,
-        type: ES_TYPE_NAME,
         id: `beat:${beatId}`,
       });
 
@@ -106,7 +109,7 @@ export default function ({ getService }) {
     });
 
     it('should return an error for a non-existent beat', async () => {
-      const beatId = chance.word();
+      const beatId = randomness.word();
       const { body } = await supertest
         .put(`/api/beats/agent/${beatId}`)
         .set('kbn-xsrf', 'xxx')
@@ -114,7 +117,7 @@ export default function ({ getService }) {
         .send(beat)
         .expect(404);
 
-      expect(body.message).to.be('Beat not found');
+      expect(body.error.message).to.be('Beat not found');
     });
   });
 }

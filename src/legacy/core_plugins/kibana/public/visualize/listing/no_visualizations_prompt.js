@@ -18,6 +18,8 @@
  */
 
 import React from 'react';
+import { i18n } from '@kbn/i18n';
+import { FormattedMessage } from '@kbn/i18n/react';
 
 import {
   KuiEmptyTablePrompt,
@@ -26,7 +28,7 @@ import {
   KuiButtonIcon,
 } from '@kbn/ui-framework/components';
 
-export function NoVisualizationsPrompt({ onCreateVis }) {
+function NoVisualizationsPrompt({ onCreateVis }) {
   return (
     <KuiEmptyTablePromptPanel>
       <KuiEmptyTablePrompt
@@ -34,13 +36,20 @@ export function NoVisualizationsPrompt({ onCreateVis }) {
           <KuiButton
             onClick={onCreateVis}
             buttonType="primary"
-            icon={<KuiButtonIcon type="create"/>}
+            icon={<KuiButtonIcon type="create" />}
           >
-            Create a visualization
+            <FormattedMessage
+              id="kbn.visualize.listing.noVisualizations.createVisualizationButtonLabel"
+              defaultMessage="Create a visualization"
+            />
           </KuiButton>
         }
-        message="Looks like you don't have any visualizations. Let's create some!"
+        message={i18n.translate('kbn.visualize.listing.noVisualizationsText', {
+          defaultMessage: `Looks like you don't have any visualizations. Let's create some!`,
+        })}
       />
     </KuiEmptyTablePromptPanel>
   );
 }
+
+export { NoVisualizationsPrompt };

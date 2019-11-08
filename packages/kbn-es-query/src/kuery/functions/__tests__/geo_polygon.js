@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import expect from 'expect.js';
+import expect from '@kbn/expect';
 import * as geoPolygon from '../geo_polygon';
 import { nodeTypes } from '../../node_types';
 import indexPatternResponse from '../../../__fixtures__/index_pattern_response.json';
@@ -91,6 +91,17 @@ describe('kuery functions', function () {
         });
       });
 
+      it('should return an ES geo_polygon query without an index pattern', function () {
+        const node = nodeTypes.function.buildNode('geoPolygon', 'geo', points);
+        const result = geoPolygon.toElasticsearchQuery(node);
+        expect(result).to.have.property('geo_polygon');
+        expect(result.geo_polygon.geo).to.have.property('points');
+
+        result.geo_polygon.geo.points.forEach((point, index) => {
+          const expectedLatLon = `${points[index].lat}, ${points[index].lon}`;
+          expect(point).to.be(expectedLatLon);
+        });
+      });
 
       it('should use the ignore_unmapped parameter', function () {
         const node = nodeTypes.function.buildNode('geoPolygon', 'geo', points);
@@ -102,6 +113,18 @@ describe('kuery functions', function () {
         const node = nodeTypes.function.buildNode('geoPolygon', 'script number', points);
         expect(geoPolygon.toElasticsearchQuery)
           .withArgs(node, indexPattern).to.throwException(/Geo polygon query does not support scripted fields/);
+      });
+
+      it('should use a provided nested context to create a full field name', function () {
+        const node = nodeTypes.function.buildNode('geoPolygon', 'geo', points);
+        const result = geoPolygon.toElasticsearchQuery(
+          node,
+          indexPattern,
+          {},
+          { nested: { path: 'nestedField' } }
+        );
+        expect(result).to.have.property('geo_polygon');
+        expect(result.geo_polygon).to.have.property('nestedField.geo');
       });
     });
   });

@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import expect from 'expect.js';
+import expect from '@kbn/expect';
 import * as geoBoundingBox from '../geo_bounding_box';
 import { nodeTypes } from '../../node_types';
 import indexPatternResponse from '../../../__fixtures__/index_pattern_response.json';
@@ -83,6 +83,14 @@ describe('kuery functions', function () {
         expect(result.geo_bounding_box.geo).to.have.property('bottom_right', '50.73, -135.35');
       });
 
+      it('should return an ES geo_bounding_box query without an index pattern', function () {
+        const node = nodeTypes.function.buildNode('geoBoundingBox', 'geo', params);
+        const result = geoBoundingBox.toElasticsearchQuery(node);
+        expect(result).to.have.property('geo_bounding_box');
+        expect(result.geo_bounding_box.geo).to.have.property('top_left', '73.12, -174.37');
+        expect(result.geo_bounding_box.geo).to.have.property('bottom_right', '50.73, -135.35');
+      });
+
       it('should use the ignore_unmapped parameter', function () {
         const node = nodeTypes.function.buildNode('geoBoundingBox', 'geo', params);
         const result = geoBoundingBox.toElasticsearchQuery(node, indexPattern);
@@ -94,6 +102,19 @@ describe('kuery functions', function () {
         expect(geoBoundingBox.toElasticsearchQuery)
           .withArgs(node, indexPattern).to.throwException(/Geo bounding box query does not support scripted fields/);
       });
+
+      it('should use a provided nested context to create a full field name', function () {
+        const node = nodeTypes.function.buildNode('geoBoundingBox', 'geo', params);
+        const result = geoBoundingBox.toElasticsearchQuery(
+          node,
+          indexPattern,
+          {},
+          { nested: { path: 'nestedField' } }
+        );
+        expect(result).to.have.property('geo_bounding_box');
+        expect(result.geo_bounding_box).to.have.property('nestedField.geo');
+      });
+
     });
   });
 });

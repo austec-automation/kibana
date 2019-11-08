@@ -1,0 +1,12 @@
+{
+  "telemetry": {
+    "properties": {
+      "enabled": {
+        "type": "boolean"
+      },
+      "lastVersionChecked": {
+        "type": "keyword"
+      }
+    }
+  }
+}

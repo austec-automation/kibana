@@ -21,7 +21,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
 import { injectI18n, FormattedMessage } from '@kbn/i18n/react';
-import chrome from 'ui/chrome';
+import { getServices } from '../kibana_services';
 
 import {
   EuiButton,
@@ -38,52 +38,71 @@ import {
   EuiFlexGrid,
 } from '@elastic/eui';
 
-/* istanbul ignore next */
-const basePath = chrome.getBasePath();
 
 const AddDataUi = ({ apmUiEnabled, isNewKibanaInstance, intl, mlEnabled }) => {
-
+  const basePath = getServices().getBasePath();
   const renderCards = () => {
-    const apmTitle = intl.formatMessage({
-      id: 'kbn.home.addData.apm.nameTitle', defaultMessage: 'APM'
-    });
-    const apmDescription = intl.formatMessage({
-      id: 'kbn.home.addData.apm.nameDescription',
-      defaultMessage: 'APM automatically collects in-depth performance metrics and errors from inside your applications.'
-    });
-    const loggingTitle = intl.formatMessage({
-      id: 'kbn.home.addData.logging.nameTitle', defaultMessage: 'Logging'
-    });
-    const loggingDescription = intl.formatMessage({
-      id: 'kbn.home.addData.logging.nameDescription',
-      defaultMessage: 'Ingest logs from popular data sources and easily visualize in preconfigured dashboards.'
-    });
-    const metricsTitle = intl.formatMessage({
-      id: 'kbn.home.addData.metrics.nameTitle', defaultMessage: 'Metrics'
-    });
-    const metricsDescription = intl.formatMessage({
-      id: 'kbn.home.addData.metrics.nameDescription',
-      defaultMessage: 'Collect metrics from the operating system and services running on your servers.'
-    });
-    const securityTitle = intl.formatMessage({
-      id: 'kbn.home.addData.security.nameTitle', defaultMessage: 'Security analytics'
-    });
-    const securityDescription = intl.formatMessage({
-      id: 'kbn.home.addData.security.nameDescription',
-      defaultMessage: 'Centralize security events for interactive investigation in ready-to-go visualizations.'
-    });
+    const apmData = {
+      title: intl.formatMessage({
+        id: 'kbn.home.addData.apm.nameTitle',
+        defaultMessage: 'APM',
+      }),
+      description: intl.formatMessage({
+        id: 'kbn.home.addData.apm.nameDescription',
+        defaultMessage:
+          'APM automatically collects in-depth performance metrics and errors from inside your applications.',
+      }),
+      ariaDescribedby: 'aria-describedby.addAmpButtonLabel',
+    };
+    const loggingData = {
+      title: intl.formatMessage({
+        id: 'kbn.home.addData.logging.nameTitle',
+        defaultMessage: 'Logs',
+      }),
+      description: intl.formatMessage({
+        id: 'kbn.home.addData.logging.nameDescription',
+        defaultMessage:
+          'Ingest logs from popular data sources and easily visualize in preconfigured dashboards.',
+      }),
+      ariaDescribedby: 'aria-describedby.addLogDataButtonLabel',
+    };
+    const metricsData = {
+      title: intl.formatMessage({
+        id: 'kbn.home.addData.metrics.nameTitle',
+        defaultMessage: 'Metrics',
+      }),
+      description: intl.formatMessage({
+        id: 'kbn.home.addData.metrics.nameDescription',
+        defaultMessage:
+          'Collect metrics from the operating system and services running on your servers.',
+      }),
+      ariaDescribedby: 'aria-describedby.addMetricsButtonLabel',
+    };
+    const siemData = {
+      title: intl.formatMessage({
+        id: 'kbn.home.addData.siem.nameTitle',
+        defaultMessage: 'SIEM',
+      }),
+      description: intl.formatMessage({
+        id: 'kbn.home.addData.siem.nameDescription',
+        defaultMessage:
+          'Centralize security events for interactive investigation in ready-to-go visualizations.',
+      }),
+      ariaDescribedby: 'aria-describedby.addSiemButtonLabel',
+    };
 
-    const getApmCard = () =>  (
-      <EuiFlexItem>
+    const getApmCard = () => (
+      <EuiFlexItem grow={false}>
         <EuiCard
           className="homAddData__card"
-          icon={<EuiIcon className="homAddData__icon" type="apmApp" />}
-          title={apmTitle}
-          description={apmDescription}
+          icon={<EuiIcon className="homAddData__icon" type="logoAPM" />}
+          title={apmData.title}
+          description={<span id={apmData.ariaDescribedby}>{apmData.description}</span>}
           footer={
             <EuiButton
               className="homAddData__button"
               href="#/home/tutorial/apm"
+              aria-describedby={apmData.ariaDescribedby}
             >
               <FormattedMessage
                 id="kbn.home.addData.apm.addApmButtonLabel"
@@ -96,20 +115,26 @@ const AddDataUi = ({ apmUiEnabled, isNewKibanaInstance, intl, mlEnabled }) => {
     );
 
     return (
-      <EuiFlexGroup wrap gutterSize="none">
-
+      <EuiFlexGroup
+        className="homeAddData__flexGroup"
+        wrap={apmUiEnabled}
+        gutterSize="l"
+        justifyContent="spaceAround"
+        responsive={false}
+      >
         {apmUiEnabled !== false && getApmCard()}
 
-        <EuiFlexItem>
+        <EuiFlexItem grow={false}>
           <EuiCard
             className="homAddData__card"
-            icon={<EuiIcon  className="homAddData__icon" type="loggingApp" />}
-            title={loggingTitle}
-            description={loggingDescription}
+            icon={<EuiIcon className="homAddData__icon" type="logoLogging" />}
+            title={loggingData.title}
+            description={<span id={loggingData.ariaDescribedby}>{loggingData.description}</span>}
             footer={
               <EuiButton
                 className="homAddData__button"
                 href="#/home/tutorial_directory/logging"
+                aria-describedby={loggingData.ariaDescribedby}
               >
                 <FormattedMessage
                   id="kbn.home.addData.logging.addLogDataButtonLabel"
@@ -120,16 +145,17 @@ const AddDataUi = ({ apmUiEnabled, isNewKibanaInstance, intl, mlEnabled }) => {
           />
         </EuiFlexItem>
 
-        <EuiFlexItem>
+        <EuiFlexItem grow={false}>
           <EuiCard
             className="homAddData__card"
-            icon={<EuiIcon className="homAddData__icon" type="monitoringApp" />}
-            title={metricsTitle}
-            description={metricsDescription}
+            icon={<EuiIcon className="homAddData__icon" type="logoMetrics" />}
+            title={metricsData.title}
+            description={<span id={metricsData.ariaDescribedby}>{metricsData.description}</span>}
             footer={
               <EuiButton
                 className="homAddData__button"
                 href="#/home/tutorial_directory/metrics"
+                aria-describedby={metricsData.ariaDescribedby}
               >
                 <FormattedMessage
                   id="kbn.home.addData.metrics.addMetricsDataButtonLabel"
@@ -140,19 +166,20 @@ const AddDataUi = ({ apmUiEnabled, isNewKibanaInstance, intl, mlEnabled }) => {
           />
         </EuiFlexItem>
 
-        <EuiFlexItem>
+        <EuiFlexItem grow={false}>
           <EuiCard
             className="homAddData__card"
-            icon={<EuiIcon className="homAddData__icon" type="securityApp" />}
-            title={securityTitle}
-            description={securityDescription}
+            icon={<EuiIcon className="homAddData__icon" type="logoSecurity" />}
+            title={siemData.title}
+            description={<span id={siemData.ariaDescribedby}>{siemData.description}</span>}
             footer={
               <EuiButton
                 className="homAddData__button"
-                href="#/home/tutorial_directory/security"
+                href="#/home/tutorial_directory/siem"
+                aria-describedby={siemData.ariaDescribedby}
               >
                 <FormattedMessage
-                  id="kbn.home.addData.security.addSecurityEventsButtonLabel"
+                  id="kbn.home.addData.siem.addSiemEventsButtonLabel"
                   defaultMessage="Add security events"
                 />
               </EuiButton>
@@ -163,21 +190,23 @@ const AddDataUi = ({ apmUiEnabled, isNewKibanaInstance, intl, mlEnabled }) => {
     );
   };
 
-  const footerItemClasses = classNames('homAddData__footerItem', { 'homAddData__footerItem--highlight': isNewKibanaInstance });
+  const footerItemClasses = classNames('homAddData__footerItem', {
+    'homAddData__footerItem--highlight': isNewKibanaInstance,
+  });
 
   return (
     <EuiPanel paddingSize="l">
       <EuiFlexGroup>
         <EuiFlexItem>
           <EuiTitle>
-            <h3>
+            <h2>
               <FormattedMessage
                 id="kbn.home.addData.addDataToKibanaTitle"
                 defaultMessage="Add Data to Kibana"
               />
-            </h3>
+            </h2>
           </EuiTitle>
-          <EuiText>
+          <EuiText size="s">
             <p>
               <FormattedMessage
                 id="kbn.home.addData.addDataToKibanaDescription"
@@ -196,7 +225,7 @@ const AddDataUi = ({ apmUiEnabled, isNewKibanaInstance, intl, mlEnabled }) => {
 
       <EuiFlexGrid columns={mlEnabled !== false ? 3 : 2}>
         <EuiFlexItem className={footerItemClasses}>
-          <EuiText>
+          <EuiText size="s">
             <strong style={{ height: 38 }}>
               <FormattedMessage
                 id="kbn.home.addData.sampleDataTitle"
@@ -214,9 +243,9 @@ const AddDataUi = ({ apmUiEnabled, isNewKibanaInstance, intl, mlEnabled }) => {
             </EuiLink>
           </EuiText>
         </EuiFlexItem>
-        {mlEnabled !== false ?
+        {mlEnabled !== false ? (
           <EuiFlexItem className={footerItemClasses}>
-            <EuiText>
+            <EuiText size="s">
               <strong style={{ height: 38 }}>
                 <FormattedMessage
                   id="kbn.home.addData.uploadFileTitle"
@@ -234,10 +263,9 @@ const AddDataUi = ({ apmUiEnabled, isNewKibanaInstance, intl, mlEnabled }) => {
               </EuiLink>
             </EuiText>
           </EuiFlexItem>
-          : null
-        }
+        ) : null}
         <EuiFlexItem className={footerItemClasses}>
-          <EuiText>
+          <EuiText size="s">
             <strong style={{ height: 38 }}>
               <FormattedMessage
                 id="kbn.home.addData.yourDataTitle"
@@ -246,7 +274,7 @@ const AddDataUi = ({ apmUiEnabled, isNewKibanaInstance, intl, mlEnabled }) => {
             </strong>
             <EuiLink
               style={{ display: 'block', textAlign: 'center' }}
-              href="#/management/kibana/index"
+              href="#/management/kibana/index_pattern"
             >
               <FormattedMessage
                 id="kbn.home.addData.yourDataLink"

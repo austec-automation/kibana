@@ -36,11 +36,10 @@ import isEsCompatibleWithKibana from './is_es_compatible_with_kibana';
  */
 const lastWarnedNodesForServer = new WeakMap();
 
-export function ensureEsVersion(server, kibanaVersion) {
+export function ensureEsVersion(server, kibanaVersion, ignoreVersionMismatch = false) {
   const { callWithInternalUser } = server.plugins.elasticsearch.getCluster('admin');
-  const isProd = server.config().get('env.prod');
 
-  server.log(['plugin', 'debug'], 'Checking Elasticsearch version');
+  server.logWithMetadata(['plugin', 'debug'], 'Checking Elasticsearch version');
   return callWithInternalUser('nodes.info', {
     filterPath: [
       'nodes.*.version',
@@ -63,11 +62,11 @@ export function ensureEsVersion(server, kibanaVersion) {
 
         // It's acceptable if ES and Kibana versions are not the same so long as
         // they are not incompatible, but we should warn about it
-        // In development we ignore, this can be expected when testing against snapshots
-        // or across version qualifiers
-        const exactMisMatch = esNode.version !== kibanaVersion;
+
+        // Ignore version qualifiers
+        // https://github.com/elastic/elasticsearch/issues/36859
         const looseMismatch = coerce(esNode.version).version !== coerce(kibanaVersion).version;
-        if (isProd && exactMisMatch || looseMismatch) {
+        if (looseMismatch) {
           warningNodes.push(esNode);
         }
       });
@@ -92,19 +91,18 @@ export function ensureEsVersion(server, kibanaVersion) {
         const warningNodeNames = getHumanizedNodeNames(simplifiedNodes).join(', ');
         if (lastWarnedNodesForServer.get(server) !== warningNodeNames) {
           lastWarnedNodesForServer.set(server, warningNodeNames);
-          server.log(['warning'], {
-            tmpl: (
-              `You're running Kibana ${kibanaVersion} with some different versions of ` +
+          server.logWithMetadata(['warning'],
+            `You're running Kibana ${kibanaVersion} with some different versions of ` +
             'Elasticsearch. Update Kibana or Elasticsearch to the same ' +
-            `version to prevent compatibility issues: ${warningNodeNames}`
-            ),
-            kibanaVersion,
-            nodes: simplifiedNodes,
-          });
+            `version to prevent compatibility issues: ${warningNodeNames}`,
+            {
+              kibanaVersion,
+              nodes: simplifiedNodes,
+            });
         }
       }
 
-      if (incompatibleNodes.length) {
+      if (incompatibleNodes.length && !shouldIgnoreVersionMismatch(server, ignoreVersionMismatch)) {
         const incompatibleNodeNames = getHumanizedNodeNames(incompatibleNodes);
         throw new Error(
           `This version of Kibana requires Elasticsearch v` +
@@ -115,4 +113,13 @@ export function ensureEsVersion(server, kibanaVersion) {
 
       return true;
     });
+}
+
+function shouldIgnoreVersionMismatch(server, ignoreVersionMismatch) {
+  const isDevMode = server.config().get('env.dev');
+  if(!isDevMode && ignoreVersionMismatch) {
+    throw new Error(`Option "elasticsearch.ignoreVersionMismatch" can only be used in development mode`);
+  }
+
+  return isDevMode && ignoreVersionMismatch;
 }

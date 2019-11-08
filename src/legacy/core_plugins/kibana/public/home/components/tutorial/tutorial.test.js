@@ -24,6 +24,21 @@ import {
   Tutorial,
 } from './tutorial';
 
+
+jest.mock('../../kibana_services', () =>({
+  getServices: () =>({
+    getBasePath: jest.fn(() => 'path'),
+    chrome: {
+      setBreadcrumbs: () => {}
+    }
+  })
+}));
+jest.mock('../../../../../kibana_react/public', () => {
+  return {
+    Markdown: () => <div className="markdown"/>,
+  };
+});
+
 function buildInstructionSet(type) {
   return {
     instructionSets: [
@@ -71,7 +86,6 @@ describe('isCloudEnabled is false', () => {
       replaceTemplateStrings={replaceTemplateStrings}
       tutorialId={'my_testing_tutorial'}
       bulkCreate={() => { }}
-      isK7Design={false}
     />);
     await loadTutorialPromise;
 
@@ -96,7 +110,6 @@ describe('isCloudEnabled is false', () => {
       replaceTemplateStrings={replaceTemplateStrings}
       tutorialId={'my_testing_tutorial'}
       bulkCreate={() => { }}
-      isK7Design={false}
     />);
     await loadBasicTutorialPromise;
     component.update();
@@ -111,7 +124,6 @@ describe('isCloudEnabled is false', () => {
       replaceTemplateStrings={replaceTemplateStrings}
       tutorialId={'my_testing_tutorial'}
       bulkCreate={() => { }}
-      isK7Design={false}
     />);
     await loadTutorialPromise;
     component.update();
@@ -130,22 +142,6 @@ test('should render ELASTIC_CLOUD instructions when isCloudEnabled is true', asy
     replaceTemplateStrings={replaceTemplateStrings}
     tutorialId={'my_testing_tutorial'}
     bulkCreate={() => { }}
-    isK7Design={false}
-  />);
-  await loadTutorialPromise;
-  component.update();
-  expect(component).toMatchSnapshot(); // eslint-disable-line
-});
-
-test('should not render breadcrumbs when K7', async () => {
-  const component = shallowWithIntl(<Tutorial.WrappedComponent
-    addBasePath={addBasePath}
-    isCloudEnabled={true}
-    getTutorial={getTutorial}
-    replaceTemplateStrings={replaceTemplateStrings}
-    tutorialId={'my_testing_tutorial'}
-    bulkCreate={() => { }}
-    isK7Design={true}
   />);
   await loadTutorialPromise;
   component.update();

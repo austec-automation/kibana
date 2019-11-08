@@ -29,7 +29,7 @@ import {
 import { extractI18nCallMessages } from './i18n_call';
 import { createParserErrorMessage, isI18nTranslateFunction, traverseNodes } from '../utils';
 import { extractIntlMessages, extractFormattedMessages } from './react';
-import { createFailError } from '../../run';
+import { createFailError, isFailError } from '@kbn/dev-utils';
 
 /**
  * Detect Intl.formatMessage() function call (React).
@@ -61,30 +61,37 @@ export function isFormattedMessageElement(node) {
   return isJSXOpeningElement(node) && isJSXIdentifier(node.name, { name: 'FormattedMessage' });
 }
 
-export function* extractCodeMessages(buffer) {
+export function* extractCodeMessages(buffer, reporter) {
   let ast;
 
   try {
     ast = parse(buffer.toString(), {
       sourceType: 'module',
-      plugins: ['jsx', 'typescript', 'objectRestSpread', 'classProperties', 'asyncGenerators'],
+      plugins: ['jsx', 'typescript', 'objectRestSpread', 'classProperties', 'asyncGenerators', 'dynamicImport'],
     });
   } catch (error) {
     if (error instanceof SyntaxError) {
       const errorWithContext = createParserErrorMessage(buffer.toString(), error);
-      throw createFailError(errorWithContext);
+      reporter.report(createFailError(errorWithContext));
+      return;
     }
-
-    throw error;
   }
 
   for (const node of traverseNodes(ast.program.body)) {
-    if (isI18nTranslateFunction(node)) {
-      yield extractI18nCallMessages(node);
-    } else if (isIntlFormatMessageFunction(node)) {
-      yield extractIntlMessages(node);
-    } else if (isFormattedMessageElement(node)) {
-      yield extractFormattedMessages(node);
+    try {
+      if (isI18nTranslateFunction(node)) {
+        yield extractI18nCallMessages(node);
+      } else if (isIntlFormatMessageFunction(node)) {
+        yield extractIntlMessages(node);
+      } else if (isFormattedMessageElement(node)) {
+        yield extractFormattedMessages(node);
+      }
+    } catch (error) {
+      if (!isFailError(error)) {
+        throw error;
+      }
+
+      reporter.report(error);
     }
   }
 }
