@@ -10,9 +10,9 @@
  * And a minimum bucket span
  */
 
-import _ from 'lodash';
+import get from 'lodash/get';
 
-export function polledDataCheckerFactory(callAsCurrentUser) {
+export function polledDataCheckerFactory({ callAsCurrentUser }) {
   class PolledDataChecker {
     constructor(index, timeField, duration, query) {
       this.index = index;
@@ -28,8 +28,8 @@ export function polledDataCheckerFactory(callAsCurrentUser) {
       return new Promise((resolve, reject) => {
         const interval = { name: '1m', ms: 60000 };
         this.performSearch(interval.ms)
-          .then(resp => {
-            const fullBuckets = _.get(resp, 'aggregations.non_empty_buckets.buckets', []);
+          .then((resp) => {
+            const fullBuckets = get(resp, 'aggregations.non_empty_buckets.buckets', []);
             const result = this.isPolledData(fullBuckets, interval);
             if (result.pass) {
               // data is polled, return a flag and the minimumBucketSpan which should be
@@ -42,7 +42,7 @@ export function polledDataCheckerFactory(callAsCurrentUser) {
               minimumBucketSpan: this.minimumBucketSpan,
             });
           })
-          .catch(resp => {
+          .catch((resp) => {
             reject(resp);
           });
       });

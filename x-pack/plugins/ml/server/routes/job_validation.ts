@@ -5,9 +5,9 @@
  */
 
 import Boom from 'boom';
-import { RequestHandlerContext } from 'src/core/server';
-import { schema, TypeOf } from '@kbn/config-schema';
-import { licensePreRoutingFactory } from './license_check_pre_routing_factory';
+import { ILegacyScopedClusterClient } from 'kibana/server';
+import { TypeOf } from '@kbn/config-schema';
+import { AnalysisConfig } from '../../common/types/anomaly_detection_jobs';
 import { wrapError } from '../client/error_wrapper';
 import { RouteInitialization } from '../types';
 import {
@@ -25,31 +25,17 @@ type CalculateModelMemoryLimitPayload = TypeOf<typeof modelMemoryLimitSchema>;
 /**
  * Routes for job validation
  */
-export function jobValidationRoutes(
-  { getLicenseCheckResults, router }: RouteInitialization,
-  version: string
-) {
+export function jobValidationRoutes({ router, mlLicense }: RouteInitialization, version: string) {
   function calculateModelMemoryLimit(
-    context: RequestHandlerContext,
+    legacyClient: ILegacyScopedClusterClient,
     payload: CalculateModelMemoryLimitPayload
   ) {
-    const {
-      indexPattern,
-      splitFieldName,
-      query,
-      fieldNames,
-      influencerNames,
-      timeFieldName,
-      earliestMs,
-      latestMs,
-    } = payload;
+    const { analysisConfig, indexPattern, query, timeFieldName, earliestMs, latestMs } = payload;
 
-    return calculateModelMemoryLimitProvider(context.ml!.mlClient.callAsCurrentUser)(
+    return calculateModelMemoryLimitProvider(legacyClient)(
+      analysisConfig as AnalysisConfig,
       indexPattern,
-      splitFieldName,
       query,
-      fieldNames,
-      influencerNames,
       timeFieldName,
       earliestMs,
       latestMs
@@ -62,6 +48,8 @@ export function jobValidationRoutes(
    * @api {post} /api/ml/validate/estimate_bucket_span Estimate bucket span
    * @apiName EstimateBucketSpan
    * @apiDescription  Estimates minimum viable bucket span based on the characteristics of a pre-viewed subset of the data
+   *
+   * @apiSchema (body) estimateBucketSpanSchema
    */
   router.post(
     {
@@ -69,15 +57,14 @@ export function jobValidationRoutes(
       validate: {
         body: estimateBucketSpanSchema,
       },
+      options: {
+        tags: ['access:ml:canCreateJob'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         let errorResp;
-        const resp = await estimateBucketSpanFactory(
-          context.ml!.mlClient.callAsCurrentUser,
-          context.core.elasticsearch.adminClient.callAsInternalUser,
-          getLicenseCheckResults().isSecurityDisabled
-        )(request.body)
+        const resp = await estimateBucketSpanFactory(legacyClient)(request.body)
           // this catch gets triggered when the estimation code runs without error
           // but isn't able to come up with a bucket span estimation.
           // this doesn't return a HTTP error but an object with an error message
@@ -106,7 +93,9 @@ export function jobValidationRoutes(
    *
    * @api {post} /api/ml/validate/calculate_model_memory_limit Calculates model memory limit
    * @apiName CalculateModelMemoryLimit
-   * @apiDescription Calculates the model memory limit
+   * @apiDescription Calls _estimate_model_memory endpoint to retrieve model memory estimation.
+   *
+   * @apiSchema (body) modelMemoryLimitSchema
    *
    * @apiSuccess {String} modelMemoryLimit
    */
@@ -116,10 +105,13 @@ export function jobValidationRoutes(
       validate: {
         body: modelMemoryLimitSchema,
       },
+      options: {
+        tags: ['access:ml:canCreateJob'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
-        const resp = await calculateModelMemoryLimit(context, request.body);
+        const resp = await calculateModelMemoryLimit(legacyClient, request.body);
 
         return response.ok({
           body: resp,
@@ -136,20 +128,22 @@ export function jobValidationRoutes(
    * @api {post} /api/ml/validate/cardinality Validate cardinality
    * @apiName ValidateCardinality
    * @apiDescription Validates cardinality for the given job configuration
+   *
+   * @apiSchema (body) validateCardinalitySchema
    */
   router.post(
     {
       path: '/api/ml/validate/cardinality',
       validate: {
-        body: schema.object(validateCardinalitySchema),
+        body: validateCardinalitySchema,
+      },
+      options: {
+        tags: ['access:ml:canCreateJob'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
-        const resp = await validateCardinality(
-          context.ml!.mlClient.callAsCurrentUser,
-          request.body
-        );
+        const resp = await validateCardinality(legacyClient, request.body);
 
         return response.ok({
           body: resp,
@@ -166,6 +160,8 @@ export function jobValidationRoutes(
    * @api {post} /api/ml/validate/job Validates job
    * @apiName ValidateJob
    * @apiDescription Validates the given job configuration
+   *
+   * @apiSchema (body) validateJobSchema
    */
   router.post(
     {
@@ -173,16 +169,18 @@ export function jobValidationRoutes(
       validate: {
         body: validateJobSchema,
       },
+      options: {
+        tags: ['access:ml:canCreateJob'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         // version corresponds to the version used in documentation links.
         const resp = await validateJob(
-          context.ml!.mlClient.callAsCurrentUser,
+          legacyClient,
           request.body,
           version,
-          context.core.elasticsearch.adminClient.callAsInternalUser,
-          getLicenseCheckResults().isSecurityDisabled
+          mlLicense.isSecurityEnabled() === false
         );
 
         return response.ok({

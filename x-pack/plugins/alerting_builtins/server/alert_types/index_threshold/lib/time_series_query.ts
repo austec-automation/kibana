@@ -4,6 +4,7 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
+import { SearchResponse } from 'elasticsearch';
 import { DEFAULT_GROUPS } from '../index';
 import { getDateRangeInfo } from './date_range_info';
 import { Logger, CallCluster } from '../../../types';
@@ -21,11 +22,22 @@ export async function timeSeriesQuery(
   params: TimeSeriesQueryParameters
 ): Promise<TimeSeriesResult> {
   const { logger, callCluster, query: queryParams } = params;
-  const { index, window, interval, timeField, dateStart, dateEnd } = queryParams;
+  const {
+    index,
+    timeWindowSize,
+    timeWindowUnit,
+    interval,
+    timeField,
+    dateStart,
+    dateEnd,
+  } = queryParams;
 
+  const window = `${timeWindowSize}${timeWindowUnit}`;
   const dateRangeInfo = getDateRangeInfo({ dateStart, dateEnd, window, interval });
 
   // core query
+  // Constructing a typesafe ES query in JS is problematic, use any escapehatch for now
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const esQuery: any = {
     index,
     body: {
@@ -51,10 +63,10 @@ export async function timeSeriesQuery(
   };
 
   // add the aggregations
-  const { aggType, aggField, groupField, groupLimit } = queryParams;
+  const { aggType, aggField, termField, termSize } = queryParams;
 
   const isCountAgg = aggType === 'count';
-  const isGroupAgg = !!groupField;
+  const isGroupAgg = !!termField;
 
   let aggParent = esQuery.body;
 
@@ -63,11 +75,20 @@ export async function timeSeriesQuery(
     aggParent.aggs = {
       groupAgg: {
         terms: {
-          field: groupField,
-          size: groupLimit || DEFAULT_GROUPS,
+          field: termField,
+          size: termSize || DEFAULT_GROUPS,
         },
       },
     };
+
+    // if not count add an order
+    if (!isCountAgg) {
+      const sortOrder = aggType === 'min' ? 'asc' : 'desc';
+      aggParent.aggs.groupAgg.terms.order = {
+        sortValueAgg: sortOrder,
+      };
+    }
+
     aggParent = aggParent.aggs.groupAgg;
   }
 
@@ -76,35 +97,52 @@ export async function timeSeriesQuery(
     dateAgg: {
       date_range: {
         field: timeField,
+        format: 'strict_date_time',
         ranges: dateRangeInfo.dateRanges,
       },
     },
   };
+
+  // if not count, add a sorted value agg
+  if (!isCountAgg) {
+    aggParent.aggs.sortValueAgg = {
+      [aggType]: {
+        field: aggField,
+      },
+    };
+  }
+
   aggParent = aggParent.aggs.dateAgg;
 
   // finally, the metric aggregation, if requested
-  const actualAggType = aggType === 'average' ? 'avg' : aggType;
   if (!isCountAgg) {
     aggParent.aggs = {
       metricAgg: {
-        [actualAggType]: {
+        [aggType]: {
           field: aggField,
         },
       },
     };
   }
 
-  let esResult: any;
+  let esResult: SearchResponse<unknown>;
   const logPrefix = 'indexThreshold timeSeriesQuery: callCluster';
   logger.debug(`${logPrefix} call: ${JSON.stringify(esQuery)}`);
 
+  // note there are some commented out console.log()'s below, which are left
+  // in, as they are VERY useful when debugging these queries; debug logging
+  // isn't as nice since it's a single long JSON line.
+
+  // console.log('time_series_query.ts request\n', JSON.stringify(esQuery, null, 4));
   try {
     esResult = await callCluster('search', esQuery);
   } catch (err) {
-    logger.warn(`${logPrefix} error: ${JSON.stringify(err.message)}`);
-    throw new Error('error running search');
+    // console.log('time_series_query.ts error\n', JSON.stringify(err, null, 4));
+    logger.warn(`${logPrefix} error: ${err.message}`);
+    return { results: [] };
   }
 
+  // console.log('time_series_query.ts response\n', JSON.stringify(esResult, null, 4));
   logger.debug(`${logPrefix} result: ${JSON.stringify(esResult)}`);
   return getResultFromEs(isCountAgg, isGroupAgg, esResult);
 }
@@ -112,7 +150,7 @@ export async function timeSeriesQuery(
 function getResultFromEs(
   isCountAgg: boolean,
   isGroupAgg: boolean,
-  esResult: Record<string, any>
+  esResult: SearchResponse<unknown>
 ): TimeSeriesResult {
   const aggregations = esResult?.aggregations || {};
 

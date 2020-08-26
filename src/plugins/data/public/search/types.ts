@@ -17,70 +17,85 @@
  * under the License.
  */
 
-import { CoreStart } from 'kibana/public';
-import { ISearch, ISearchGeneric } from './i_search';
-import { TStrategyTypes } from './strategy_types';
-import { LegacyApiCaller } from './es_client';
+import { Observable } from 'rxjs';
+import { PackageInfo } from 'kibana/server';
+import { LegacyApiCaller } from './legacy/es_client';
+import { ISearchInterceptor } from './search_interceptor';
+import { ISearchSource, SearchSourceFields } from './search_source';
+import { SearchUsageCollector } from './collectors';
+import { AggsSetup, AggsSetupDependencies, AggsStartDependencies, AggsStart } from './aggs';
+import {
+  IKibanaSearchRequest,
+  IKibanaSearchResponse,
+  IEsSearchRequest,
+  IEsSearchResponse,
+} from '../../common/search';
+import { IndexPatternsContract } from '../../common/index_patterns/index_patterns';
+import { UsageCollectionSetup } from '../../../usage_collection/public';
 
-export interface ISearchContext {
-  core: CoreStart;
-  getSearchStrategy: <T extends TStrategyTypes>(name: T) => TSearchStrategyProvider<T>;
+export interface ISearchOptions {
+  signal?: AbortSignal;
+  strategy?: string;
 }
 
-/**
- * Search strategy interface contains a search method that takes in
- * a request and returns a promise that resolves to a response.
- */
-export interface ISearchStrategy<T extends TStrategyTypes> {
-  search: ISearch<T>;
+export type ISearch = (
+  request: IKibanaSearchRequest,
+  options?: ISearchOptions
+) => Observable<IKibanaSearchResponse>;
+
+export type ISearchGeneric = <
+  SearchStrategyRequest extends IEsSearchRequest = IEsSearchRequest,
+  SearchStrategyResponse extends IEsSearchResponse = IEsSearchResponse
+>(
+  request: SearchStrategyRequest,
+  options?: ISearchOptions
+) => Observable<SearchStrategyResponse>;
+
+export interface ISearchStartLegacy {
+  esClient: LegacyApiCaller;
 }
 
-/**
- * Search strategy provider creates an instance of a search strategy with the request
- * handler context bound to it. This way every search strategy can use
- * whatever information they require from the request context.
- */
-export type TSearchStrategyProviderEnhanced<T extends TStrategyTypes> = (
-  search: ISearchGeneric
-) => Promise<ISearchStrategy<T>>;
-
-export type TSearchStrategiesMap = {
-  [K in TStrategyTypes]?: TSearchStrategyProvider<any>;
-};
-
-/**
- * Search strategy provider creates an instance of a search strategy with the request
- * handler context bound to it. This way every search strategy can use
- * whatever information they require from the request context.
- */
-export type TSearchStrategyProvider<T extends TStrategyTypes> = (
-  context: ISearchContext
-) => ISearchStrategy<T>;
-
-/**
- * Extension point exposed for other plugins to register their own search
- * strategies.
- */
-export type TRegisterSearchStrategyProvider = <T extends TStrategyTypes>(
-  name: T,
-  searchStrategyProvider: TSearchStrategyProvider<T>
-) => void;
-
+export interface SearchEnhancements {
+  searchInterceptor: ISearchInterceptor;
+}
 /**
  * The setup contract exposed by the Search plugin exposes the search strategy extension
  * point.
  */
 export interface ISearchSetup {
+  aggs: AggsSetup;
+  usageCollector?: SearchUsageCollector;
   /**
-   * Extension point exposed for other plugins to register their own search
-   * strategies.
+   * @internal
    */
-  registerSearchStrategyProvider: TRegisterSearchStrategyProvider;
+  __enhance: (enhancements: SearchEnhancements) => void;
 }
 
 export interface ISearchStart {
+  aggs: AggsStart;
   search: ISearchGeneric;
-  __LEGACY: {
-    esClient: LegacyApiCaller;
+  searchSource: {
+    create: (fields?: SearchSourceFields) => Promise<ISearchSource>;
+    createEmpty: () => ISearchSource;
   };
+  /**
+   * @deprecated
+   * @internal
+   */
+  __LEGACY: ISearchStartLegacy;
+}
+
+export { SEARCH_EVENT_TYPE } from './collectors';
+
+/** @internal */
+export interface SearchServiceSetupDependencies {
+  packageInfo: PackageInfo;
+  registerFunction: AggsSetupDependencies['registerFunction'];
+  usageCollection?: UsageCollectionSetup;
+}
+
+/** @internal */
+export interface SearchServiceStartDependencies {
+  fieldFormats: AggsStartDependencies['fieldFormats'];
+  indexPatterns: IndexPatternsContract;
 }

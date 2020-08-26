@@ -4,50 +4,43 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
+import { ProcessorEvent } from '../../../../common/processor_event';
 import { Setup } from '../../helpers/setup_request';
-import { PromiseReturnType } from '../../../../typings/common';
-import {
-  PROCESSOR_EVENT,
-  SERVICE_NAME
-} from '../../../../common/elasticsearch_fieldnames';
-import { ALL_OPTION_VALUE } from '../../../../common/agent_configuration_constants';
+import { PromiseReturnType } from '../../../../../observability/typings/common';
+import { SERVICE_NAME } from '../../../../common/elasticsearch_fieldnames';
+import { ALL_OPTION_VALUE } from '../../../../common/agent_configuration/all_option';
 
 export type AgentConfigurationServicesAPIResponse = PromiseReturnType<
   typeof getServiceNames
 >;
 export async function getServiceNames({ setup }: { setup: Setup }) {
-  const { client, indices } = setup;
+  const { apmEventClient } = setup;
 
   const params = {
-    index: [
-      indices['apm_oss.metricsIndices'],
-      indices['apm_oss.errorIndices'],
-      indices['apm_oss.transactionIndices']
-    ],
+    apm: {
+      events: [
+        ProcessorEvent.transaction,
+        ProcessorEvent.error,
+        ProcessorEvent.metric,
+      ],
+    },
     body: {
       size: 0,
-      query: {
-        bool: {
-          filter: [
-            { terms: { [PROCESSOR_EVENT]: ['transaction', 'error', 'metric'] } }
-          ]
-        }
-      },
       aggs: {
         services: {
           terms: {
             field: SERVICE_NAME,
-            size: 50
-          }
-        }
-      }
-    }
+            size: 50,
+          },
+        },
+      },
+    },
   };
 
-  const resp = await client.search(params);
+  const resp = await apmEventClient.search(params);
   const serviceNames =
     resp.aggregations?.services.buckets
-      .map(bucket => bucket.key as string)
+      .map((bucket) => bucket.key as string)
       .sort() || [];
   return [ALL_OPTION_VALUE, ...serviceNames];
 }

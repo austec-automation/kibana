@@ -4,6 +4,11 @@ exports[`timeseriesFetcher should call client with correct query 1`] = `
 Array [
   Array [
     Object {
+      "apm": Object {
+        "events": Array [
+          "transaction",
+        ],
+      },
       "body": Object {
         "aggs": Object {
           "overall_avg_duration": Object {
@@ -21,6 +26,9 @@ Array [
               "pct": Object {
                 "percentiles": Object {
                   "field": "transaction.duration.us",
+                  "hdr": Object {
+                    "number_of_significant_value_digits": 2,
+                  },
                   "percents": Array [
                     95,
                     99,
@@ -63,11 +71,6 @@ Array [
             "filter": Array [
               Object {
                 "term": Object {
-                  "processor.event": "transaction",
-                },
-              },
-              Object {
-                "term": Object {
                   "service.name": "myServiceName",
                 },
               },
@@ -95,7 +98,6 @@ Array [
         },
         "size": 0,
       },
-      "index": "myIndex",
     },
   ],
 ]

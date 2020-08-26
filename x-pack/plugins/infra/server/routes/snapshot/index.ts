@@ -13,8 +13,9 @@ import { UsageCollector } from '../../usage/usage_collector';
 import { parseFilterQuery } from '../../utils/serialized_query';
 import { SnapshotRequestRT, SnapshotNodeResponseRT } from '../../../common/http_api/snapshot_api';
 import { throwErrors } from '../../../common/runtime_types';
+import { createSearchClient } from '../../lib/create_search_client';
 
-const escapeHatch = schema.object({}, { allowUnknowns: true });
+const escapeHatch = schema.object({}, { unknowns: 'allow' });
 
 export const initSnapshotRoute = (libs: InfraBackendLibs) => {
   const { framework } = libs;
@@ -34,15 +35,20 @@ export const initSnapshotRoute = (libs: InfraBackendLibs) => {
           nodeType,
           groupBy,
           sourceId,
-          metric,
+          metrics,
           timerange,
           accountId,
           region,
+          includeTimeseries,
+          overrideCompositeSize,
         } = pipe(
           SnapshotRequestRT.decode(request.body),
           fold(throwErrors(Boom.badRequest), identity)
         );
-        const source = await libs.sources.getSourceConfiguration(requestContext, sourceId);
+        const source = await libs.sources.getSourceConfiguration(
+          requestContext.core.savedObjects.client,
+          sourceId
+        );
         UsageCollector.countNode(nodeType);
         const options = {
           filterQuery: parseFilterQuery(filterQuery),
@@ -51,10 +57,14 @@ export const initSnapshotRoute = (libs: InfraBackendLibs) => {
           nodeType,
           groupBy,
           sourceConfiguration: source.configuration,
-          metric,
+          metrics,
           timerange,
+          includeTimeseries,
+          overrideCompositeSize,
         };
-        const nodesWithInterval = await libs.snapshot.getNodes(requestContext, options);
+
+        const client = createSearchClient(requestContext, framework);
+        const nodesWithInterval = await libs.snapshot.getNodes(client, options);
         return response.ok({
           body: SnapshotNodeResponseRT.encode(nodesWithInterval),
         });

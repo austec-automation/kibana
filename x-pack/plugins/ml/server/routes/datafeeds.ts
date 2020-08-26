@@ -4,16 +4,20 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-import { schema } from '@kbn/config-schema';
-import { licensePreRoutingFactory } from './license_check_pre_routing_factory';
 import { wrapError } from '../client/error_wrapper';
 import { RouteInitialization } from '../types';
-import { startDatafeedSchema, datafeedConfigSchema } from './schemas/datafeeds_schema';
+import {
+  startDatafeedSchema,
+  datafeedConfigSchema,
+  datafeedIdSchema,
+  deleteDatafeedQuerySchema,
+} from './schemas/datafeeds_schema';
+import { getAuthorizationHeader } from '../lib/request_authorization';
 
 /**
  * Routes for datafeed service
  */
-export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitialization) {
+export function dataFeedRoutes({ router, mlLicense }: RouteInitialization) {
   /**
    * @apiGroup DatafeedService
    *
@@ -25,10 +29,13 @@ export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitiali
     {
       path: '/api/ml/datafeeds',
       validate: false,
+      options: {
+        tags: ['access:ml:canGetDatafeeds'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
-        const resp = await context.ml!.mlClient.callAsCurrentUser('ml.datafeeds');
+        const resp = await legacyClient.callAsInternalUser('ml.datafeeds');
 
         return response.ok({
           body: resp,
@@ -45,18 +52,23 @@ export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitiali
    * @api {get} /api/ml/datafeeds/:datafeedId Get datafeed for given datafeed id
    * @apiName GetDatafeed
    * @apiDescription Retrieves configuration information for datafeed
+   *
+   * @apiSchema (params) datafeedIdSchema
    */
   router.get(
     {
       path: '/api/ml/datafeeds/{datafeedId}',
       validate: {
-        params: schema.object({ datafeedId: schema.string() }),
+        params: datafeedIdSchema,
+      },
+      options: {
+        tags: ['access:ml:canGetDatafeeds'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         const datafeedId = request.params.datafeedId;
-        const resp = await context.ml!.mlClient.callAsCurrentUser('ml.datafeeds', { datafeedId });
+        const resp = await legacyClient.callAsInternalUser('ml.datafeeds', { datafeedId });
 
         return response.ok({
           body: resp,
@@ -78,10 +90,13 @@ export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitiali
     {
       path: '/api/ml/datafeeds/_stats',
       validate: false,
+      options: {
+        tags: ['access:ml:canGetDatafeeds'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
-        const resp = await context.ml!.mlClient.callAsCurrentUser('ml.datafeedStats');
+        const resp = await legacyClient.callAsInternalUser('ml.datafeedStats');
 
         return response.ok({
           body: resp,
@@ -98,18 +113,23 @@ export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitiali
    * @api {get} /api/ml/datafeeds/:datafeedId/_stats Get datafeed stats for given datafeed id
    * @apiName GetDatafeedStats
    * @apiDescription Retrieves usage information for datafeed
+   *
+   * @apiSchema (params) datafeedIdSchema
    */
   router.get(
     {
       path: '/api/ml/datafeeds/{datafeedId}/_stats',
       validate: {
-        params: schema.object({ datafeedId: schema.string() }),
+        params: datafeedIdSchema,
+      },
+      options: {
+        tags: ['access:ml:canGetDatafeeds'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         const datafeedId = request.params.datafeedId;
-        const resp = await context.ml!.mlClient.callAsCurrentUser('ml.datafeedStats', {
+        const resp = await legacyClient.callAsInternalUser('ml.datafeedStats', {
           datafeedId,
         });
 
@@ -128,21 +148,28 @@ export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitiali
    * @api {put} /api/ml/datafeeds/:datafeedId Creates datafeed
    * @apiName CreateDatafeed
    * @apiDescription Instantiates a datafeed
+   *
+   * @apiSchema (params) datafeedIdSchema
+   * @apiSchema (body) datafeedConfigSchema
    */
   router.put(
     {
       path: '/api/ml/datafeeds/{datafeedId}',
       validate: {
-        params: schema.object({ datafeedId: schema.string() }),
+        params: datafeedIdSchema,
         body: datafeedConfigSchema,
       },
+      options: {
+        tags: ['access:ml:canCreateDatafeed'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         const datafeedId = request.params.datafeedId;
-        const resp = await context.ml!.mlClient.callAsCurrentUser('ml.addDatafeed', {
+        const resp = await legacyClient.callAsInternalUser('ml.addDatafeed', {
           datafeedId,
           body: request.body,
+          ...getAuthorizationHeader(request),
         });
 
         return response.ok({
@@ -160,21 +187,28 @@ export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitiali
    * @api {post} /api/ml/datafeeds/:datafeedId/_update Updates datafeed for given datafeed id
    * @apiName UpdateDatafeed
    * @apiDescription Updates certain properties of a datafeed
+   *
+   * @apiSchema (params) datafeedIdSchema
+   * @apiSchema (body) datafeedConfigSchema
    */
   router.post(
     {
       path: '/api/ml/datafeeds/{datafeedId}/_update',
       validate: {
-        params: schema.object({ datafeedId: schema.string() }),
+        params: datafeedIdSchema,
         body: datafeedConfigSchema,
       },
+      options: {
+        tags: ['access:ml:canUpdateDatafeed'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         const datafeedId = request.params.datafeedId;
-        const resp = await context.ml!.mlClient.callAsCurrentUser('ml.updateDatafeed', {
+        const resp = await legacyClient.callAsInternalUser('ml.updateDatafeed', {
           datafeedId,
           body: request.body,
+          ...getAuthorizationHeader(request),
         });
 
         return response.ok({
@@ -192,16 +226,22 @@ export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitiali
    * @api {delete} /api/ml/datafeeds/:datafeedId Deletes datafeed
    * @apiName DeleteDatafeed
    * @apiDescription Deletes an existing datafeed
+   *
+   * @apiSchema (params) datafeedIdSchema
+   * @apiSchema (query) deleteDatafeedQuerySchema
    */
   router.delete(
     {
       path: '/api/ml/datafeeds/{datafeedId}',
       validate: {
-        params: schema.object({ datafeedId: schema.string() }),
-        query: schema.maybe(schema.object({ force: schema.maybe(schema.any()) })),
+        params: datafeedIdSchema,
+        query: deleteDatafeedQuerySchema,
+      },
+      options: {
+        tags: ['access:ml:canDeleteDatafeed'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         const options: { datafeedId: string; force?: boolean } = {
           datafeedId: request.params.jobId,
@@ -211,7 +251,7 @@ export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitiali
           options.force = force;
         }
 
-        const resp = await context.ml!.mlClient.callAsCurrentUser('ml.deleteDatafeed', options);
+        const resp = await legacyClient.callAsInternalUser('ml.deleteDatafeed', options);
 
         return response.ok({
           body: resp,
@@ -228,21 +268,27 @@ export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitiali
    * @api {post} /api/ml/datafeeds/:datafeedId/_start Starts datafeed for given datafeed id(s)
    * @apiName StartDatafeed
    * @apiDescription Starts one or more datafeeds
+   *
+   * @apiSchema (params) datafeedIdSchema
+   * @apiSchema (body) startDatafeedSchema
    */
   router.post(
     {
       path: '/api/ml/datafeeds/{datafeedId}/_start',
       validate: {
-        params: schema.object({ datafeedId: schema.string() }),
+        params: datafeedIdSchema,
         body: startDatafeedSchema,
       },
+      options: {
+        tags: ['access:ml:canStartStopDatafeed'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         const datafeedId = request.params.datafeedId;
         const { start, end } = request.body;
 
-        const resp = await context.ml!.mlClient.callAsCurrentUser('ml.startDatafeed', {
+        const resp = await legacyClient.callAsInternalUser('ml.startDatafeed', {
           datafeedId,
           start,
           end,
@@ -263,19 +309,24 @@ export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitiali
    * @api {post} /api/ml/datafeeds/:datafeedId/_stop Stops datafeed for given datafeed id(s)
    * @apiName StopDatafeed
    * @apiDescription Stops one or more datafeeds
+   *
+   * @apiSchema (params) datafeedIdSchema
    */
   router.post(
     {
       path: '/api/ml/datafeeds/{datafeedId}/_stop',
       validate: {
-        params: schema.object({ datafeedId: schema.string() }),
+        params: datafeedIdSchema,
+      },
+      options: {
+        tags: ['access:ml:canStartStopDatafeed'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         const datafeedId = request.params.datafeedId;
 
-        const resp = await context.ml!.mlClient.callAsCurrentUser('ml.stopDatafeed', {
+        const resp = await legacyClient.callAsInternalUser('ml.stopDatafeed', {
           datafeedId,
         });
 
@@ -294,19 +345,25 @@ export function dataFeedRoutes({ router, getLicenseCheckResults }: RouteInitiali
    * @api {get} /api/ml/datafeeds/:datafeedId/_preview Preview datafeed for given datafeed id
    * @apiName PreviewDatafeed
    * @apiDescription Previews a datafeed
+   *
+   * @apiSchema (params) datafeedIdSchema
    */
   router.get(
     {
       path: '/api/ml/datafeeds/{datafeedId}/_preview',
       validate: {
-        params: schema.object({ datafeedId: schema.string() }),
+        params: datafeedIdSchema,
+      },
+      options: {
+        tags: ['access:ml:canPreviewDatafeed'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         const datafeedId = request.params.datafeedId;
-        const resp = await context.ml!.mlClient.callAsCurrentUser('ml.datafeedPreview', {
+        const resp = await legacyClient.callAsInternalUser('ml.datafeedPreview', {
           datafeedId,
+          ...getAuthorizationHeader(request),
         });
 
         return response.ok({

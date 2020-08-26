@@ -17,73 +17,121 @@
  * under the License.
  */
 
-import { Plugin, CoreSetup, CoreStart, PackageInfo } from '../../../../core/public';
+import { Plugin, CoreSetup, CoreStart, PackageInfo } from 'src/core/public';
+import { ISearchSetup, ISearchStart, SearchEnhancements } from './types';
 
-import { SYNC_SEARCH_STRATEGY, syncSearchStrategyProvider } from './sync_search_strategy';
-import { ISearchSetup, ISearchStart, TSearchStrategyProvider, TSearchStrategiesMap } from './types';
-import { TStrategyTypes } from './strategy_types';
-import { getEsClient, LegacyApiCaller } from './es_client';
-import { ES_SEARCH_STRATEGY, DEFAULT_SEARCH_STRATEGY } from '../../common/search';
-import { esSearchStrategyProvider } from './es_search/es_search_strategy';
+import { createSearchSource, SearchSource, SearchSourceDependencies } from './search_source';
+import { getEsClient, LegacyApiCaller } from './legacy';
+import { AggsService, AggsStartDependencies } from './aggs';
+import { IndexPatternsContract } from '../index_patterns/index_patterns';
+import { ISearchInterceptor, SearchInterceptor } from './search_interceptor';
+import { ISearchGeneric } from './types';
+import { SearchUsageCollector, createUsageCollector } from './collectors';
+import { UsageCollectionSetup } from '../../../usage_collection/public';
+import { esdsl, esRawResponse } from './expressions';
+import { ExpressionsSetup } from '../../../expressions/public';
 
-/**
- * The search plugin exposes two registration methods for other plugins:
- *  -  registerSearchStrategyProvider for plugins to add their own custom
- * search strategies
- *  -  registerSearchStrategyContext for plugins to expose information
- * and/or functionality for other search strategies to use
- *
- * It also comes with two search strategy implementations - SYNC_SEARCH_STRATEGY and ES_SEARCH_STRATEGY.
- */
+/** @internal */
+export interface SearchServiceSetupDependencies {
+  packageInfo: PackageInfo;
+  usageCollection?: UsageCollectionSetup;
+  expressions: ExpressionsSetup;
+}
+
+/** @internal */
+export interface SearchServiceStartDependencies {
+  fieldFormats: AggsStartDependencies['fieldFormats'];
+  indexPatterns: IndexPatternsContract;
+}
+
 export class SearchService implements Plugin<ISearchSetup, ISearchStart> {
-  /**
-   * A mapping of search strategies keyed by a unique identifier.  Plugins can use this unique identifier
-   * to override certain strategy implementations.
-   */
-  private searchStrategies: TSearchStrategiesMap = {};
-
   private esClient?: LegacyApiCaller;
+  private readonly aggsService = new AggsService();
+  private searchInterceptor!: ISearchInterceptor;
+  private usageCollector?: SearchUsageCollector;
 
-  private registerSearchStrategyProvider = <T extends TStrategyTypes>(
-    name: T,
-    strategyProvider: TSearchStrategyProvider<T>
-  ) => {
-    this.searchStrategies[name] = strategyProvider;
-  };
+  public setup(
+    { http, getStartServices, injectedMetadata, notifications, uiSettings }: CoreSetup,
+    { expressions, packageInfo, usageCollection }: SearchServiceSetupDependencies
+  ): ISearchSetup {
+    const esApiVersion = injectedMetadata.getInjectedVar('esApiVersion') as string;
+    const esRequestTimeout = injectedMetadata.getInjectedVar('esRequestTimeout') as number;
+    const packageVersion = packageInfo.version;
 
-  private getSearchStrategy = <T extends TStrategyTypes>(name: T): TSearchStrategyProvider<T> => {
-    const strategyProvider = this.searchStrategies[name];
-    if (!strategyProvider) throw new Error(`Search strategy ${name} not found`);
-    return strategyProvider;
-  };
+    this.usageCollector = createUsageCollector(getStartServices, usageCollection);
 
-  public setup(core: CoreSetup, packageInfo: PackageInfo): ISearchSetup {
-    this.esClient = getEsClient(core.injectedMetadata, core.http, packageInfo);
+    this.esClient = getEsClient({
+      esRequestTimeout,
+      esApiVersion,
+      http,
+      packageVersion,
+    });
 
-    this.registerSearchStrategyProvider(SYNC_SEARCH_STRATEGY, syncSearchStrategyProvider);
+    /**
+     * A global object that intercepts all searches and provides convenience methods for cancelling
+     * all pending search requests, as well as getting the number of pending search requests.
+     * TODO: Make this modular so that apps can opt in/out of search collection, or even provide
+     * their own search collector instances
+     */
+    this.searchInterceptor = new SearchInterceptor(
+      {
+        toasts: notifications.toasts,
+        http,
+        uiSettings,
+        startServices: getStartServices(),
+        usageCollector: this.usageCollector!,
+      },
+      esRequestTimeout
+    );
 
-    this.registerSearchStrategyProvider(ES_SEARCH_STRATEGY, esSearchStrategyProvider);
+    expressions.registerFunction(esdsl);
+    expressions.registerType(esRawResponse);
 
     return {
-      registerSearchStrategyProvider: this.registerSearchStrategyProvider,
+      aggs: this.aggsService.setup({
+        registerFunction: expressions.registerFunction,
+        uiSettings,
+      }),
+      usageCollector: this.usageCollector!,
+      __enhance: (enhancements: SearchEnhancements) => {
+        this.searchInterceptor = enhancements.searchInterceptor;
+      },
     };
   }
 
-  public start(core: CoreStart): ISearchStart {
+  public start(
+    { application, http, injectedMetadata, notifications, uiSettings }: CoreStart,
+    { fieldFormats, indexPatterns }: SearchServiceStartDependencies
+  ): ISearchStart {
+    const search = ((request, options) => {
+      return this.searchInterceptor.search(request, options);
+    }) as ISearchGeneric;
+
+    const legacySearch = {
+      esClient: this.esClient!,
+    };
+
+    const searchSourceDependencies: SearchSourceDependencies = {
+      getConfig: uiSettings.get.bind(uiSettings),
+      esShardTimeout: injectedMetadata.getInjectedVar('esShardTimeout') as number,
+      search,
+      legacySearch,
+    };
+
     return {
-      search: (request, options, strategyName) => {
-        const strategyProvider = this.getSearchStrategy(strategyName || DEFAULT_SEARCH_STRATEGY);
-        const { search } = strategyProvider({
-          core,
-          getSearchStrategy: this.getSearchStrategy,
-        });
-        return search(request as any, options);
+      aggs: this.aggsService.start({ fieldFormats, uiSettings }),
+      search,
+      searchSource: {
+        create: createSearchSource(indexPatterns, searchSourceDependencies),
+        createEmpty: () => {
+          return new SearchSource({}, searchSourceDependencies);
+        },
       },
-      __LEGACY: {
-        esClient: this.esClient!,
-      },
+      __LEGACY: legacySearch,
     };
   }
 
-  public stop() {}
+  public stop() {
+    this.aggsService.stop();
+  }
 }

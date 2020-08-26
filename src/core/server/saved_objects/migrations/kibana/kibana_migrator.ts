@@ -22,20 +22,23 @@
  * (the shape of the mappings and documents in the index).
  */
 
-import { Logger } from 'src/core/server/logging';
 import { KibanaConfigType } from 'src/core/server/kibana_config';
+import { BehaviorSubject } from 'rxjs';
+
+import { Logger } from '../../../logging';
 import { IndexMapping, SavedObjectsTypeMappingDefinitions } from '../../mappings';
 import { SavedObjectUnsanitizedDoc, SavedObjectsSerializer } from '../../serialization';
 import { docValidator, PropertyValidators } from '../../validation';
-import { buildActiveMappings, CallCluster, IndexMigrator } from '../core';
+import { buildActiveMappings, IndexMigrator, MigrationResult, MigrationStatus } from '../core';
 import { DocumentMigrator, VersionedTransformer } from '../core/document_migrator';
+import { MigrationEsClient } from '../core/';
 import { createIndexMap } from '../core/build_index_map';
 import { SavedObjectsMigrationConfigType } from '../../saved_objects_config';
 import { ISavedObjectTypeRegistry } from '../../saved_objects_type_registry';
 import { SavedObjectsType } from '../../types';
 
 export interface KibanaMigratorOptions {
-  callCluster: CallCluster;
+  client: MigrationEsClient;
   typeRegistry: ISavedObjectTypeRegistry;
   savedObjectsConfig: SavedObjectsMigrationConfigType;
   kibanaConfig: KibanaConfigType;
@@ -46,11 +49,16 @@ export interface KibanaMigratorOptions {
 
 export type IKibanaMigrator = Pick<KibanaMigrator, keyof KibanaMigrator>;
 
+export interface KibanaMigratorStatus {
+  status: MigrationStatus;
+  result?: MigrationResult[];
+}
+
 /**
  * Manages the shape of mappings and documents in the Kibana index.
  */
 export class KibanaMigrator {
-  private readonly callCluster: CallCluster;
+  private readonly client: MigrationEsClient;
   private readonly savedObjectsConfig: SavedObjectsMigrationConfigType;
   private readonly documentMigrator: VersionedTransformer;
   private readonly kibanaConfig: KibanaConfigType;
@@ -58,13 +66,17 @@ export class KibanaMigrator {
   private readonly mappingProperties: SavedObjectsTypeMappingDefinitions;
   private readonly typeRegistry: ISavedObjectTypeRegistry;
   private readonly serializer: SavedObjectsSerializer;
-  private migrationResult?: Promise<Array<{ status: string }>>;
+  private migrationResult?: Promise<MigrationResult[]>;
+  private readonly status$ = new BehaviorSubject<KibanaMigratorStatus>({
+    status: 'waiting',
+  });
+  private readonly activeMappings: IndexMapping;
 
   /**
    * Creates an instance of KibanaMigrator.
    */
   constructor({
-    callCluster,
+    client,
     typeRegistry,
     kibanaConfig,
     savedObjectsConfig,
@@ -72,7 +84,7 @@ export class KibanaMigrator {
     kibanaVersion,
     logger,
   }: KibanaMigratorOptions) {
-    this.callCluster = callCluster;
+    this.client = client;
     this.kibanaConfig = kibanaConfig;
     this.savedObjectsConfig = savedObjectsConfig;
     this.typeRegistry = typeRegistry;
@@ -85,6 +97,9 @@ export class KibanaMigrator {
       validateDoc: docValidator(savedObjectValidations || {}),
       log: this.log,
     });
+    // Building the active mappings (and associated md5sums) is an expensive
+    // operation so we cache the result
+    this.activeMappings = buildActiveMappings(this.mappingProperties);
   }
 
   /**
@@ -109,10 +124,18 @@ export class KibanaMigrator {
     Array<{ status: string }>
   > {
     if (this.migrationResult === undefined || rerun) {
-      this.migrationResult = this.runMigrationsInternal();
+      this.status$.next({ status: 'running' });
+      this.migrationResult = this.runMigrationsInternal().then((result) => {
+        this.status$.next({ status: 'completed', result });
+        return result;
+      });
     }
 
     return this.migrationResult;
+  }
+
+  public getStatus$() {
+    return this.status$.asObservable();
   }
 
   private runMigrationsInternal() {
@@ -123,10 +146,10 @@ export class KibanaMigrator {
       registry: this.typeRegistry,
     });
 
-    const migrators = Object.keys(indexMap).map(index => {
+    const migrators = Object.keys(indexMap).map((index) => {
       return new IndexMigrator({
         batchSize: this.savedObjectsConfig.batchSize,
-        callCluster: this.callCluster,
+        client: this.client,
         documentMigrator: this.documentMigrator,
         index,
         log: this.log,
@@ -141,7 +164,7 @@ export class KibanaMigrator {
       });
     });
 
-    return Promise.all(migrators.map(migrator => migrator.migrate()));
+    return Promise.all(migrators.map((migrator) => migrator.migrate()));
   }
 
   /**
@@ -149,7 +172,7 @@ export class KibanaMigrator {
    *
    */
   public getActiveMappings(): IndexMapping {
-    return buildActiveMappings(this.mappingProperties);
+    return this.activeMappings;
   }
 
   /**

@@ -4,7 +4,7 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-import { Unionize } from 'utility-types';
+import { Unionize, UnionToIntersection } from 'utility-types';
 
 type SortOrder = 'asc' | 'desc';
 type SortInstruction = Record<string, SortOrder | { order: SortOrder }>;
@@ -34,6 +34,11 @@ type MetricsAggregationOptions =
 
 interface MetricsAggregationResponsePart {
   value: number | null;
+}
+interface DateHistogramBucket {
+  doc_count: number;
+  key: number;
+  key_as_string: string;
 }
 
 type GetCompositeKeys<
@@ -86,6 +91,7 @@ export interface AggregationOptionsByType {
   percentiles: {
     field: string;
     percents?: number[];
+    hdr?: { number_of_significant_value_digits: number };
   };
   extended_stats: {
     field: string;
@@ -126,6 +132,26 @@ export interface AggregationOptionsByType {
     combine_script: Script;
     reduce_script: Script;
   };
+  date_range: {
+    field: string;
+    format?: string;
+    ranges: Array<
+      | { from: string | number }
+      | { to: string | number }
+      | { from: string | number; to: string | number }
+    >;
+    keyed?: boolean;
+  };
+  auto_date_histogram: {
+    field: string;
+    buckets: number;
+  };
+  percentile_ranks: {
+    field: string;
+    values: string[];
+    keyed?: boolean;
+    hdr?: { number_of_significant_value_digits: number };
+  };
 }
 
 type AggregationType = keyof AggregationOptionsByType;
@@ -135,6 +161,15 @@ type AggregationOptionsMap = Unionize<
     [TAggregationType in AggregationType]: AggregationOptionsByType[TAggregationType];
   }
 > & { aggs?: AggregationInputMap };
+
+interface DateRangeBucket {
+  key: string;
+  to?: number;
+  from?: number;
+  to_as_string?: string;
+  from_as_string?: string;
+  doc_count: number;
+}
 
 export interface AggregationInputMap {
   [key: string]: AggregationOptionsMap;
@@ -175,14 +210,8 @@ interface AggregationResponsePart<
   };
   date_histogram: {
     buckets: Array<
-      {
-        doc_count: number;
-        key: number;
-        key_as_string: string;
-      } & BucketSubAggregationResponse<
-        TAggregationOptionsMap['aggs'],
-        TDocument
-      >
+      DateHistogramBucket &
+        BucketSubAggregationResponse<TAggregationOptionsMap['aggs'], TDocument>
     >;
   };
   avg: MetricsAggregationResponsePart;
@@ -259,10 +288,13 @@ interface AggregationResponsePart<
       }
     | undefined;
   composite: {
-    after_key: Record<GetCompositeKeys<TAggregationOptionsMap>, number>;
+    after_key: Record<
+      GetCompositeKeys<TAggregationOptionsMap>,
+      string | number
+    >;
     buckets: Array<
       {
-        key: Record<GetCompositeKeys<TAggregationOptionsMap>, number>;
+        key: Record<GetCompositeKeys<TAggregationOptionsMap>, string | number>;
         doc_count: number;
       } & BucketSubAggregationResponse<
         TAggregationOptionsMap['aggs'],
@@ -276,6 +308,26 @@ interface AggregationResponsePart<
   scripted_metric: {
     value: unknown;
   };
+  date_range: {
+    buckets: TAggregationOptionsMap extends { date_range: { keyed: true } }
+      ? Record<string, DateRangeBucket>
+      : { buckets: DateRangeBucket[] };
+  };
+  auto_date_histogram: {
+    buckets: Array<
+      DateHistogramBucket &
+        AggregationResponseMap<TAggregationOptionsMap['aggs'], TDocument>
+    >;
+    interval: string;
+  };
+
+  percentile_ranks: {
+    values: TAggregationOptionsMap extends {
+      percentile_ranks: { keyed: false };
+    }
+      ? Array<{ key: number; value: number }>
+      : Record<string, number>;
+  };
 }
 
 // Type for debugging purposes. If you see an error in AggregationResponseMap
@@ -285,8 +337,17 @@ interface AggregationResponsePart<
 
 // type MissingAggregationResponseTypes = Exclude<
 //   AggregationType,
-//   keyof AggregationResponsePart<{}>
+//   keyof AggregationResponsePart<{}, unknown>
 // >;
+
+// ensures aggregations work with requests where aggregation options are a union type,
+// e.g. { transaction_groups: { composite: any } | { terms: any } }.
+// Union keys are not included in keyof. The type will fall back to keyof T if
+// UnionToIntersection fails, which happens when there are conflicts between the union
+// types, e.g. { foo: string; bar?: undefined } | { foo?: undefined; bar: string };
+export type ValidAggregationKeysOf<
+  T extends Record<string, any>
+> = keyof (UnionToIntersection<T> extends never ? T : UnionToIntersection<T>);
 
 export type AggregationResponseMap<
   TAggregationInputMap extends AggregationInputMap | undefined,
@@ -296,6 +357,6 @@ export type AggregationResponseMap<
       [TName in keyof TAggregationInputMap]: AggregationResponsePart<
         TAggregationInputMap[TName],
         TDocument
-      >[AggregationType & keyof TAggregationInputMap[TName]];
+      >[AggregationType & ValidAggregationKeysOf<TAggregationInputMap[TName]>];
     }
   : undefined;

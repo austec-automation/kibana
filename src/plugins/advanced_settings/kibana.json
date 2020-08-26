@@ -1,7 +1,8 @@
 {
   "id": "advancedSettings",
   "version": "kibana",
-  "server": false,
+  "server": true,
   "ui": true,
-  "requiredPlugins": ["management"]
+  "requiredPlugins": ["management"],
+  "requiredBundles": ["kibanaReact"]
 }

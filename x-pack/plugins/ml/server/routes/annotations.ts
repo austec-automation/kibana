@@ -5,15 +5,12 @@
  */
 
 import Boom from 'boom';
-import _ from 'lodash';
 import { i18n } from '@kbn/i18n';
 
-import { schema } from '@kbn/config-schema';
 import { SecurityPluginSetup } from '../../../security/server';
 import { isAnnotationsFeatureAvailable } from '../lib/check_annotations';
 import { annotationServiceProvider } from '../models/annotation_service';
 import { wrapError } from '../client/error_wrapper';
-import { licensePreRoutingFactory } from './license_check_pre_routing_factory';
 import { RouteInitialization } from '../types';
 import {
   deleteAnnotationSchema,
@@ -21,7 +18,7 @@ import {
   indexAnnotationSchema,
 } from './schemas/annotations_schema';
 
-import { ANNOTATION_USER_UNKNOWN } from '../../../../legacy/plugins/ml/common/constants/annotations';
+import { ANNOTATION_USER_UNKNOWN } from '../../common/constants/annotations';
 
 function getAnnotationsFeatureUnavailableErrorMessage() {
   return Boom.badRequest(
@@ -36,8 +33,8 @@ function getAnnotationsFeatureUnavailableErrorMessage() {
  * Routes for annotations
  */
 export function annotationRoutes(
-  { router, getLicenseCheckResults }: RouteInitialization,
-  securityPlugin: SecurityPluginSetup
+  { router, mlLicense }: RouteInitialization,
+  securityPlugin?: SecurityPluginSetup
 ) {
   /**
    * @apiGroup Annotations
@@ -46,10 +43,7 @@ export function annotationRoutes(
    * @apiName GetAnnotations
    * @apiDescription Gets annotations.
    *
-   * @apiParam {String[]} jobIds List of job IDs
-   * @apiParam {String} earliestMs
-   * @apiParam {Number} latestMs
-   * @apiParam {Number} maxAnnotations Max limit of annotations returned
+   * @apiSchema (body) getAnnotationsSchema
    *
    * @apiSuccess {Boolean} success
    * @apiSuccess {Object} annotations
@@ -58,12 +52,15 @@ export function annotationRoutes(
     {
       path: '/api/ml/annotations',
       validate: {
-        body: schema.object(getAnnotationsSchema),
+        body: getAnnotationsSchema,
+      },
+      options: {
+        tags: ['access:ml:canGetAnnotations'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
-        const { getAnnotations } = annotationServiceProvider(context);
+        const { getAnnotations } = annotationServiceProvider(legacyClient);
         const resp = await getAnnotations(request.body);
 
         return response.ok({
@@ -82,29 +79,32 @@ export function annotationRoutes(
    * @apiName IndexAnnotations
    * @apiDescription Index the annotation.
    *
-   * @apiParam {Object} annotation
-   * @apiParam {String} username
+   * @apiSchema (body) indexAnnotationSchema
    */
   router.put(
     {
       path: '/api/ml/annotations/index',
       validate: {
-        body: schema.object(indexAnnotationSchema),
+        body: indexAnnotationSchema,
+      },
+      options: {
+        tags: ['access:ml:canCreateAnnotation'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
-        const annotationsFeatureAvailable = await isAnnotationsFeatureAvailable(
-          context.ml!.mlClient.callAsCurrentUser
-        );
+        const annotationsFeatureAvailable = await isAnnotationsFeatureAvailable(legacyClient);
         if (annotationsFeatureAvailable === false) {
           throw getAnnotationsFeatureUnavailableErrorMessage();
         }
 
-        const { indexAnnotation } = annotationServiceProvider(context);
-        const user = securityPlugin.authc.getCurrentUser(request) || {};
-        // @ts-ignore username doesn't exist on {}
-        const resp = await indexAnnotation(request.body, user.username || ANNOTATION_USER_UNKNOWN);
+        const { indexAnnotation } = annotationServiceProvider(legacyClient);
+
+        const currentUser =
+          securityPlugin !== undefined ? securityPlugin.authc.getCurrentUser(request) : {};
+        // @ts-expect-error username doesn't exist on {}
+        const username = currentUser?.username ?? ANNOTATION_USER_UNKNOWN;
+        const resp = await indexAnnotation(request.body, username);
 
         return response.ok({
           body: resp,
@@ -118,30 +118,31 @@ export function annotationRoutes(
   /**
    * @apiGroup Annotations
    *
-   * @api {delete} /api/ml/annotations/index Deletes annotation
+   * @api {delete} /api/ml/annotations/delete/:annotationId Deletes annotation
    * @apiName DeleteAnnotation
    * @apiDescription Deletes specified annotation
    *
-   * @apiParam {String} annotationId
+   * @apiSchema (params) deleteAnnotationSchema
    */
   router.delete(
     {
       path: '/api/ml/annotations/delete/{annotationId}',
       validate: {
-        params: schema.object(deleteAnnotationSchema),
+        params: deleteAnnotationSchema,
+      },
+      options: {
+        tags: ['access:ml:canDeleteAnnotation'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
-        const annotationsFeatureAvailable = await isAnnotationsFeatureAvailable(
-          context.ml!.mlClient.callAsCurrentUser
-        );
+        const annotationsFeatureAvailable = await isAnnotationsFeatureAvailable(legacyClient);
         if (annotationsFeatureAvailable === false) {
           throw getAnnotationsFeatureUnavailableErrorMessage();
         }
 
         const annotationId = request.params.annotationId;
-        const { deleteAnnotation } = annotationServiceProvider(context);
+        const { deleteAnnotation } = annotationServiceProvider(legacyClient);
         const resp = await deleteAnnotation(annotationId);
 
         return response.ok({

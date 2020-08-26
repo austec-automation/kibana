@@ -5,16 +5,25 @@
  */
 
 import { i18n } from '@kbn/i18n';
-import { CoreSetup, IScopedClusterClient, Logger, PluginInitializerContext } from 'src/core/server';
-import { LicenseCheckResult, PluginsSetup, RouteInitialization } from './types';
-import { PLUGIN_ID } from '../../../legacy/plugins/ml/common/constants/app';
-import { VALID_FULL_LICENSE_MODES } from '../../../legacy/plugins/ml/common/constants/license';
+import {
+  CoreSetup,
+  CoreStart,
+  Plugin,
+  ILegacyScopedClusterClient,
+  KibanaRequest,
+  Logger,
+  PluginInitializerContext,
+  ILegacyCustomClusterClient,
+  CapabilitiesStart,
+} from 'kibana/server';
+import { PluginsSetup, RouteInitialization } from './types';
+import { PLUGIN_ID, PLUGIN_ICON } from '../common/constants/app';
+import { MlCapabilities } from '../common/types/capabilities';
 
-// @ts-ignore: could not find declaration file for module
 import { elasticsearchJsPlugin } from './client/elasticsearch_ml';
-import { makeMlUsageCollector } from './lib/ml_telemetry';
+import { initMlTelemetry } from './lib/telemetry';
 import { initMlServerLog } from './client/log';
-import { addLinksToSampleDatasets } from './lib/sample_data_sets';
+import { initSampleDataSets } from './lib/sample_data_sets';
 
 import { annotationRoutes } from './routes/annotations';
 import { calendars } from './routes/calendars';
@@ -33,62 +42,91 @@ import { jobValidationRoutes } from './routes/job_validation';
 import { notificationRoutes } from './routes/notification_settings';
 import { resultsServiceRoutes } from './routes/results_service';
 import { systemRoutes } from './routes/system';
+import { MlLicense } from '../common/license';
+import { MlServerLicense } from './lib/license';
+import { createSharedServices, SharedServices } from './shared_services';
+import { getPluginPrivileges } from '../common/types/capabilities';
+import { setupCapabilitiesSwitcher } from './lib/capabilities';
+import { registerKibanaSettings } from './lib/register_settings';
+import { inferenceRoutes } from './routes/inference';
 
 declare module 'kibana/server' {
   interface RequestHandlerContext {
-    ml?: {
-      mlClient: IScopedClusterClient;
+    [PLUGIN_ID]?: {
+      mlClient: ILegacyScopedClusterClient;
     };
   }
 }
 
-export class MlServerPlugin {
-  private readonly pluginId: string = PLUGIN_ID;
+export interface MlPluginSetup extends SharedServices {
+  mlClient: ILegacyCustomClusterClient;
+}
+export type MlPluginStart = void;
+
+export class MlServerPlugin implements Plugin<MlPluginSetup, MlPluginStart, PluginsSetup> {
   private log: Logger;
   private version: string;
-
-  private licenseCheckResults: LicenseCheckResult = {
-    isAvailable: false,
-    isActive: false,
-    isEnabled: false,
-    isSecurityDisabled: false,
-  };
+  private mlLicense: MlServerLicense;
+  private capabilities: CapabilitiesStart | null = null;
 
   constructor(ctx: PluginInitializerContext) {
     this.log = ctx.logger.get();
     this.version = ctx.env.packageInfo.branch;
+    this.mlLicense = new MlServerLicense();
   }
 
-  public setup(coreSetup: CoreSetup, plugins: PluginsSetup) {
-    let sampleLinksInitialized = false;
+  public setup(coreSetup: CoreSetup, plugins: PluginsSetup): MlPluginSetup {
+    const { admin, user, apmUser } = getPluginPrivileges();
 
     plugins.features.registerFeature({
       id: PLUGIN_ID,
       name: i18n.translate('xpack.ml.featureRegistry.mlFeatureName', {
         defaultMessage: 'Machine Learning',
       }),
-      icon: 'machineLearningApp',
+      icon: PLUGIN_ICON,
+      order: 500,
       navLinkId: PLUGIN_ID,
       app: [PLUGIN_ID, 'kibana'],
       catalogue: [PLUGIN_ID],
-      privileges: {},
+      management: {
+        insightsAndAlerting: ['jobsListLink'],
+      },
+      privileges: {
+        all: admin,
+        read: user,
+      },
       reserved: {
-        privilege: {
-          savedObject: {
-            all: [],
-            read: [],
-          },
-          ui: [],
-        },
         description: i18n.translate('xpack.ml.feature.reserved.description', {
           defaultMessage:
             'To grant users access, you should also assign either the machine_learning_user or machine_learning_admin role.',
         }),
+        privileges: [
+          {
+            id: 'ml_user',
+            privilege: user,
+          },
+          {
+            id: 'ml_admin',
+            privilege: admin,
+          },
+          {
+            id: 'ml_apm_user',
+            privilege: apmUser,
+          },
+        ],
       },
     });
+    registerKibanaSettings(coreSetup);
+
+    this.mlLicense.setup(plugins.licensing.license$, [
+      (mlLicense: MlLicense) => initSampleDataSets(mlLicense, plugins),
+    ]);
+
+    // initialize capabilities switcher to add license filter to ml capabilities
+    setupCapabilitiesSwitcher(coreSetup, plugins.licensing.license$, this.log);
 
     // Can access via router's handler function 'context' parameter - context.ml.mlClient
-    const mlClient = coreSetup.elasticsearch.createClient(PLUGIN_ID, {
+    const mlClient = coreSetup.elasticsearch.legacy.createClient(PLUGIN_ID, {
       plugins: [elasticsearchJsPlugin],
     });
 
@@ -100,7 +138,15 @@ export class MlServerPlugin {
 
     const routeInit: RouteInitialization = {
       router: coreSetup.http.createRouter(),
-      getLicenseCheckResults: () => this.licenseCheckResults,
+      mlLicense: this.mlLicense,
+    };
+
+    const resolveMlCapabilities = async (request: KibanaRequest) => {
+      if (this.capabilities === null) {
+        return null;
+      }
+      const capabilities = await this.capabilities.resolveCapabilities(request);
+      return capabilities.ml as MlCapabilities;
     };
 
     annotationRoutes(routeInit, plugins.security);
@@ -120,49 +166,26 @@ export class MlServerPlugin {
     resultsServiceRoutes(routeInit);
     jobValidationRoutes(routeInit, this.version);
     systemRoutes(routeInit, {
-      spacesPlugin: plugins.spaces,
+      spaces: plugins.spaces,
       cloud: plugins.cloud,
+      resolveMlCapabilities,
     });
     initMlServerLog({ log: this.log });
-    coreSetup.getStartServices().then(([core]) => {
-      makeMlUsageCollector(plugins.usageCollection, core.savedObjects);
-    });
+    initMlTelemetry(coreSetup, plugins.usageCollection);
 
-    plugins.licensing.license$.subscribe(async license => {
-      const { isEnabled: securityIsEnabled } = license.getFeature('security');
-      // @ts-ignore isAvailable is not read
-      const { isAvailable, isEnabled } = license.getFeature(this.pluginId);
+    inferenceRoutes(routeInit);
 
-      this.licenseCheckResults = {
-        isActive: license.isActive,
-        // This `isAvailable` check for the ml plugin returns false for a basic license
-        // ML should be available on basic with reduced functionality (only file data visualizer)
-        // TODO: This will need to be updated in the second step of this cutover to NP.
-        isAvailable: isEnabled,
-        isEnabled,
-        isSecurityDisabled: securityIsEnabled === false,
-        type: license.type,
-      };
-
-      if (sampleLinksInitialized === false) {
-        sampleLinksInitialized = true;
-        // Add links to the Kibana sample data sets if ml is enabled
-        // and license is trial or platinum.
-        if (isEnabled === true && plugins.home) {
-          if (
-            this.licenseCheckResults.type &&
-            VALID_FULL_LICENSE_MODES.includes(this.licenseCheckResults.type)
-          ) {
-            addLinksToSampleDatasets({
-              addAppLinksToSampleDataset: plugins.home.sampleData.addAppLinksToSampleDataset,
-            });
-          }
-        }
-      }
-    });
+    return {
+      ...createSharedServices(this.mlLicense, plugins.spaces, plugins.cloud, resolveMlCapabilities),
+      mlClient,
+    };
   }
 
-  public start() {}
+  public start(coreStart: CoreStart): MlPluginStart {
+    this.capabilities = coreStart.capabilities;
+  }
 
-  public stop() {}
+  public stop() {
+    this.mlLicense.unsubscribe();
+  }
 }

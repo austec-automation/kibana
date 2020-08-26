@@ -4,29 +4,31 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-import { APICaller } from 'src/core/server';
+import { ILegacyScopedClusterClient } from 'kibana/server';
 import { mlLog } from '../../client/log';
 
 import {
   ML_ANNOTATIONS_INDEX_ALIAS_READ,
   ML_ANNOTATIONS_INDEX_ALIAS_WRITE,
   ML_ANNOTATIONS_INDEX_PATTERN,
-} from '../../../../../legacy/plugins/ml/common/constants/index_patterns';
+} from '../../../common/constants/index_patterns';
 
 // Annotations Feature is available if:
 // - ML_ANNOTATIONS_INDEX_PATTERN index is present
 // - ML_ANNOTATIONS_INDEX_ALIAS_READ alias is present
 // - ML_ANNOTATIONS_INDEX_ALIAS_WRITE alias is present
-export async function isAnnotationsFeatureAvailable(callAsCurrentUser: APICaller) {
+export async function isAnnotationsFeatureAvailable({
+  callAsInternalUser,
+}: ILegacyScopedClusterClient) {
   try {
     const indexParams = { index: ML_ANNOTATIONS_INDEX_PATTERN };
 
-    const annotationsIndexExists = await callAsCurrentUser('indices.exists', indexParams);
+    const annotationsIndexExists = await callAsInternalUser('indices.exists', indexParams);
     if (!annotationsIndexExists) {
       return false;
     }
 
-    const annotationsReadAliasExists = await callAsCurrentUser('indices.existsAlias', {
+    const annotationsReadAliasExists = await callAsInternalUser('indices.existsAlias', {
       index: ML_ANNOTATIONS_INDEX_ALIAS_READ,
       name: ML_ANNOTATIONS_INDEX_ALIAS_READ,
     });
@@ -35,7 +37,7 @@ export async function isAnnotationsFeatureAvailable(callAsCurrentUser: APICaller
       return false;
     }
 
-    const annotationsWriteAliasExists = await callAsCurrentUser('indices.existsAlias', {
+    const annotationsWriteAliasExists = await callAsInternalUser('indices.existsAlias', {
       index: ML_ANNOTATIONS_INDEX_ALIAS_WRITE,
       name: ML_ANNOTATIONS_INDEX_ALIAS_WRITE,
     });

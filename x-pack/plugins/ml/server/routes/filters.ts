@@ -4,51 +4,53 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-import { RequestHandlerContext } from 'src/core/server';
-import { schema } from '@kbn/config-schema';
-import { licensePreRoutingFactory } from './license_check_pre_routing_factory';
+import { ILegacyScopedClusterClient } from 'kibana/server';
 import { wrapError } from '../client/error_wrapper';
 import { RouteInitialization } from '../types';
-import { createFilterSchema, updateFilterSchema } from './schemas/filters_schema';
+import { createFilterSchema, filterIdSchema, updateFilterSchema } from './schemas/filters_schema';
 import { FilterManager, FormFilter } from '../models/filter';
 
 // TODO - add function for returning a list of just the filter IDs.
 // TODO - add function for returning a list of filter IDs plus item count.
-function getAllFilters(context: RequestHandlerContext) {
-  const mgr = new FilterManager(context.ml!.mlClient.callAsCurrentUser);
+function getAllFilters(legacyClient: ILegacyScopedClusterClient) {
+  const mgr = new FilterManager(legacyClient);
   return mgr.getAllFilters();
 }
 
-function getAllFilterStats(context: RequestHandlerContext) {
-  const mgr = new FilterManager(context.ml!.mlClient.callAsCurrentUser);
+function getAllFilterStats(legacyClient: ILegacyScopedClusterClient) {
+  const mgr = new FilterManager(legacyClient);
   return mgr.getAllFilterStats();
 }
 
-function getFilter(context: RequestHandlerContext, filterId: string) {
-  const mgr = new FilterManager(context.ml!.mlClient.callAsCurrentUser);
+function getFilter(legacyClient: ILegacyScopedClusterClient, filterId: string) {
+  const mgr = new FilterManager(legacyClient);
   return mgr.getFilter(filterId);
 }
 
-function newFilter(context: RequestHandlerContext, filter: FormFilter) {
-  const mgr = new FilterManager(context.ml!.mlClient.callAsCurrentUser);
+function newFilter(legacyClient: ILegacyScopedClusterClient, filter: FormFilter) {
+  const mgr = new FilterManager(legacyClient);
   return mgr.newFilter(filter);
 }
 
-function updateFilter(context: RequestHandlerContext, filterId: string, filter: FormFilter) {
-  const mgr = new FilterManager(context.ml!.mlClient.callAsCurrentUser);
+function updateFilter(
+  legacyClient: ILegacyScopedClusterClient,
+  filterId: string,
+  filter: FormFilter
+) {
+  const mgr = new FilterManager(legacyClient);
   return mgr.updateFilter(filterId, filter);
 }
 
-function deleteFilter(context: RequestHandlerContext, filterId: string) {
-  const mgr = new FilterManager(context.ml!.mlClient.callAsCurrentUser);
+function deleteFilter(legacyClient: ILegacyScopedClusterClient, filterId: string) {
+  const mgr = new FilterManager(legacyClient);
   return mgr.deleteFilter(filterId);
 }
 
-export function filtersRoutes({ router, getLicenseCheckResults }: RouteInitialization) {
+export function filtersRoutes({ router, mlLicense }: RouteInitialization) {
   /**
    * @apiGroup Filters
    *
-   * @api {get} /api/ml/filters Gets filters
+   * @api {get} /api/ml/filters Gets filters - size limit has been explicitly set to 1000
    * @apiName GetFilters
    * @apiDescription Retrieves the list of filters which are used for custom rules in anomaly detection.
    *
@@ -59,10 +61,13 @@ export function filtersRoutes({ router, getLicenseCheckResults }: RouteInitializ
     {
       path: '/api/ml/filters',
       validate: false,
+      options: {
+        tags: ['access:ml:canGetFilters'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, response }) => {
       try {
-        const resp = await getAllFilters(context);
+        const resp = await getAllFilters(legacyClient);
 
         return response.ok({
           body: resp,
@@ -80,6 +85,8 @@ export function filtersRoutes({ router, getLicenseCheckResults }: RouteInitializ
    * @apiName GetFilterById
    * @apiDescription Retrieves the filter with the specified ID.
    *
+   * @apiSchema (params) filterIdSchema
+   *
    * @apiSuccess {Boolean} success
    * @apiSuccess {Object} filter the filter with the specified ID
    */
@@ -87,12 +94,15 @@ export function filtersRoutes({ router, getLicenseCheckResults }: RouteInitializ
     {
       path: '/api/ml/filters/{filterId}',
       validate: {
-        params: schema.object({ filterId: schema.string() }),
+        params: filterIdSchema,
+      },
+      options: {
+        tags: ['access:ml:canGetFilters'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
-        const resp = await getFilter(context, request.params.filterId);
+        const resp = await getFilter(legacyClient, request.params.filterId);
         return response.ok({
           body: resp,
         });
@@ -109,6 +119,8 @@ export function filtersRoutes({ router, getLicenseCheckResults }: RouteInitializ
    * @apiName CreateFilter
    * @apiDescription Instantiates a filter, for use by custom rules in anomaly detection.
    *
+   * @apiSchema (body) createFilterSchema
+   *
    * @apiSuccess {Boolean} success
    * @apiSuccess {Object} filter created filter
    */
@@ -116,13 +128,16 @@ export function filtersRoutes({ router, getLicenseCheckResults }: RouteInitializ
     {
       path: '/api/ml/filters',
       validate: {
-        body: schema.object(createFilterSchema),
+        body: createFilterSchema,
+      },
+      options: {
+        tags: ['access:ml:canCreateFilter'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         const body = request.body;
-        const resp = await newFilter(context, body);
+        const resp = await newFilter(legacyClient, body);
 
         return response.ok({
           body: resp,
@@ -140,6 +155,9 @@ export function filtersRoutes({ router, getLicenseCheckResults }: RouteInitializ
    * @apiName UpdateFilter
    * @apiDescription Updates the  description of a filter, adds items or removes items.
    *
+   * @apiSchema (params) filterIdSchema
+   * @apiSchema (body) updateFilterSchema
+   *
    * @apiSuccess {Boolean} success
    * @apiSuccess {Object} filter updated filter
    */
@@ -147,15 +165,18 @@ export function filtersRoutes({ router, getLicenseCheckResults }: RouteInitializ
     {
       path: '/api/ml/filters/{filterId}',
       validate: {
-        params: schema.object({ filterId: schema.string() }),
-        body: schema.object(updateFilterSchema),
+        params: filterIdSchema,
+        body: updateFilterSchema,
+      },
+      options: {
+        tags: ['access:ml:canCreateFilter'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         const { filterId } = request.params;
         const body = request.body;
-        const resp = await updateFilter(context, filterId, body);
+        const resp = await updateFilter(legacyClient, filterId, body);
 
         return response.ok({
           body: resp,
@@ -173,19 +194,22 @@ export function filtersRoutes({ router, getLicenseCheckResults }: RouteInitializ
    * @apiName DeleteFilter
    * @apiDescription Deletes the filter with the specified ID.
    *
-   * @apiParam {String} filterId the ID of the filter to delete
+   * @apiSchema (params) filterIdSchema
    */
   router.delete(
     {
       path: '/api/ml/filters/{filterId}',
       validate: {
-        params: schema.object({ filterId: schema.string() }),
+        params: filterIdSchema,
+      },
+      options: {
+        tags: ['access:ml:canDeleteFilter'],
       },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         const { filterId } = request.params;
-        const resp = await deleteFilter(context, filterId);
+        const resp = await deleteFilter(legacyClient, filterId);
 
         return response.ok({
           body: resp,
@@ -211,10 +235,13 @@ export function filtersRoutes({ router, getLicenseCheckResults }: RouteInitializ
     {
       path: '/api/ml/filters/_stats',
       validate: false,
+      options: {
+        tags: ['access:ml:canGetFilters'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, response }) => {
       try {
-        const resp = await getAllFilterStats(context);
+        const resp = await getAllFilterStats(legacyClient);
 
         return response.ok({
           body: resp,

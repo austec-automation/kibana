@@ -7,30 +7,29 @@
 import { schema } from '@kbn/config-schema';
 
 import { Request } from 'hapi';
-import { RequestHandlerContext } from 'kibana/server';
+import { ILegacyScopedClusterClient } from 'kibana/server';
 import { wrapError } from '../client/error_wrapper';
 import { mlLog } from '../client/log';
-import { privilegesProvider } from '../lib/check_privileges';
+import { capabilitiesProvider } from '../lib/capabilities';
 import { spacesUtilsProvider } from '../lib/spaces_utils';
-import { licensePreRoutingFactory } from './license_check_pre_routing_factory';
 import { RouteInitialization, SystemRouteDeps } from '../types';
 
 /**
  * System routes
  */
 export function systemRoutes(
-  { getLicenseCheckResults, router }: RouteInitialization,
-  { spacesPlugin, cloud }: SystemRouteDeps
+  { router, mlLicense }: RouteInitialization,
+  { spaces, cloud, resolveMlCapabilities }: SystemRouteDeps
 ) {
-  async function getNodeCount(context: RequestHandlerContext) {
+  async function getNodeCount(legacyClient: ILegacyScopedClusterClient) {
     const filterPath = 'nodes.*.attributes';
-    const resp = await context.ml!.mlClient.callAsInternalUser('nodes.info', {
+    const resp = await legacyClient.callAsInternalUser('nodes.info', {
       filterPath,
     });
 
     let count = 0;
     if (typeof resp.nodes === 'object') {
-      Object.keys(resp.nodes).forEach(k => {
+      Object.keys(resp.nodes).forEach((k) => {
         if (resp.nodes[k].attributes !== undefined) {
           const maxOpenJobs = resp.nodes[k].attributes['ml.max_open_jobs'];
           if (maxOpenJobs !== null && maxOpenJobs > 0) {
@@ -55,12 +54,16 @@ export function systemRoutes(
       validate: {
         body: schema.maybe(schema.any()),
       },
+      options: {
+        tags: ['access:ml:canAccessML'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.basicLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
+        const { callAsCurrentUser, callAsInternalUser } = legacyClient;
         let upgradeInProgress = false;
         try {
-          const info = await context.ml!.mlClient.callAsCurrentUser('ml.info');
+          const info = await callAsInternalUser('ml.info');
           // if ml indices are currently being migrated, upgrade_mode will be set to true
           // pass this back with the privileges to allow for the disabling of UI controls.
           upgradeInProgress = info.upgrade_mode === true;
@@ -77,7 +80,7 @@ export function systemRoutes(
           }
         }
 
-        if (getLicenseCheckResults().isSecurityDisabled) {
+        if (mlLicense.isSecurityEnabled() === false) {
           // if xpack.security.enabled has been explicitly set to false
           // return that security is disabled and don't call the privilegeCheck endpoint
           return response.ok({
@@ -88,7 +91,7 @@ export function systemRoutes(
           });
         } else {
           const body = request.body;
-          const resp = await context.ml!.mlClient.callAsCurrentUser('ml.privilegeCheck', { body });
+          const resp = await callAsCurrentUser('ml.privilegeCheck', { body });
           resp.upgradeInProgress = upgradeInProgress;
           return response.ok({
             body: resp,
@@ -104,35 +107,35 @@ export function systemRoutes(
    * @apiGroup SystemRoutes
    *
    * @api {get} /api/ml/ml_capabilities Check ML capabilities
-   * @apiName MlCapabilities
+   * @apiName MlCapabilitiesResponse
    * @apiDescription Checks ML capabilities
    */
   router.get(
     {
       path: '/api/ml/ml_capabilities',
-      validate: {
-        query: schema.object({
-          ignoreSpaces: schema.maybe(schema.string()),
-        }),
-      },
+      validate: false,
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.basicLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
-        const ignoreSpaces = request.query && request.query.ignoreSpaces === 'true';
         // if spaces is disabled force isMlEnabledInSpace to be true
         const { isMlEnabledInSpace } =
-          spacesPlugin !== undefined
-            ? spacesUtilsProvider(spacesPlugin, (request as unknown) as Request)
+          spaces !== undefined
+            ? spacesUtilsProvider(spaces, (request as unknown) as Request)
             : { isMlEnabledInSpace: async () => true };
 
-        const { getPrivileges } = privilegesProvider(
-          context.ml!.mlClient.callAsCurrentUser,
-          getLicenseCheckResults(),
-          isMlEnabledInSpace,
-          ignoreSpaces
+        const mlCapabilities = await resolveMlCapabilities(request);
+        if (mlCapabilities === null) {
+          return response.customError(wrapError(new Error('resolveMlCapabilities is not defined')));
+        }
+
+        const { getCapabilities } = capabilitiesProvider(
+          legacyClient,
+          mlCapabilities,
+          mlLicense,
+          isMlEnabledInSpace
         );
         return response.ok({
-          body: await getPrivileges(),
+          body: await getCapabilities(),
         });
       } catch (error) {
         return response.customError(wrapError(error));
@@ -151,40 +154,16 @@ export function systemRoutes(
     {
       path: '/api/ml/ml_node_count',
       validate: false,
+      options: {
+        tags: ['access:ml:canGetJobs', 'access:ml:canGetDatafeeds'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
-      try {
-        // check for basic license first for consistency with other
-        // security disabled checks
-        if (getLicenseCheckResults().isSecurityDisabled) {
-          return response.ok({
-            body: await getNodeCount(context),
-          });
-        } else {
-          // if security is enabled, check that the user has permission to
-          // view jobs before calling getNodeCount.
-          // getNodeCount calls the _nodes endpoint as the internal user
-          // and so could give the user access to more information than
-          // they are entitled to.
-          const requiredPrivileges = [
-            'cluster:monitor/xpack/ml/job/get',
-            'cluster:monitor/xpack/ml/job/stats/get',
-            'cluster:monitor/xpack/ml/datafeeds/get',
-            'cluster:monitor/xpack/ml/datafeeds/stats/get',
-          ];
-          const body = { cluster: requiredPrivileges };
-          const resp = await context.ml!.mlClient.callAsCurrentUser('ml.privilegeCheck', { body });
 
-          if (resp.has_all_requested) {
-            return response.ok({
-              body: await getNodeCount(context),
-            });
-          } else {
-            // if the user doesn't have permission to create jobs
-            // return a 403
-            return response.forbidden();
-          }
-        }
+    mlLicense.basicLicenseAPIGuard(async ({ legacyClient, request, response }) => {
+      try {
+        return response.ok({
+          body: await getNodeCount(legacyClient),
+        });
       } catch (e) {
         return response.customError(wrapError(e));
       }
@@ -202,10 +181,13 @@ export function systemRoutes(
     {
       path: '/api/ml/info',
       validate: false,
+      options: {
+        tags: ['access:ml:canAccessML'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.basicLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
-        const info = await context.ml!.mlClient.callAsCurrentUser('ml.info');
+        const info = await legacyClient.callAsInternalUser('ml.info');
         const cloudId = cloud && cloud.cloudId;
         return response.ok({
           body: { ...info, cloudId },
@@ -230,11 +212,58 @@ export function systemRoutes(
       validate: {
         body: schema.maybe(schema.any()),
       },
+      options: {
+        tags: ['access:ml:canGetJobs'],
+      },
     },
-    licensePreRoutingFactory(getLicenseCheckResults, async (context, request, response) => {
+    mlLicense.fullLicenseAPIGuard(async ({ legacyClient, request, response }) => {
       try {
         return response.ok({
-          body: await context.ml!.mlClient.callAsCurrentUser('search', request.body),
+          body: await legacyClient.callAsCurrentUser('search', request.body),
+        });
+      } catch (error) {
+        return response.customError(wrapError(error));
+      }
+    })
+  );
+
+  /**
+   * @apiGroup SystemRoutes
+   *
+   * @api {post} /api/ml/index_exists ES Field caps wrapper checks if index exists
+   * @apiName MlIndexExists
+   */
+  router.post(
+    {
+      path: '/api/ml/index_exists',
+      validate: {
+        body: schema.object({ index: schema.string() }),
+      },
+      options: {
+        tags: ['access:ml:canAccessML'],
+      },
+    },
+    mlLicense.basicLicenseAPIGuard(async ({ legacyClient, request, response }) => {
+      try {
+        const { index } = request.body;
+
+        const options = {
+          index: [index],
+          fields: ['*'],
+          ignoreUnavailable: true,
+          allowNoIndices: true,
+          ignore: 404,
+        };
+
+        const fieldsResult = await legacyClient.callAsCurrentUser('fieldCaps', options);
+        const result = { exists: false };
+
+        if (Array.isArray(fieldsResult.indices) && fieldsResult.indices.length !== 0) {
+          result.exists = true;
+        }
+
+        return response.ok({
+          body: result,
         });
       } catch (error) {
         return response.customError(wrapError(error));

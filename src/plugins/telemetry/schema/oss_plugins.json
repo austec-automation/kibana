@@ -1,0 +1,85 @@
+{
+  "properties": {
+    "kql": {
+      "properties": {
+        "optInCount": {
+          "type": "long"
+        },
+        "optOutCount": {
+          "type": "long"
+        },
+        "defaultQueryLanguage": {
+          "type": "keyword"
+        }
+      }
+    },
+    "search": {
+      "properties": {
+        "successCount": {
+          "type": "number"
+        },
+        "errorCount": {
+          "type": "number"
+        },
+        "averageDuration": {
+          "type": "long"
+        }
+      }
+    },
+    "sample-data": {
+      "properties": {
+        "installed": {
+          "type": "keyword"
+        },
+        "last_install_date": {
+          "type": "date"
+        },
+        "last_install_set": {
+          "type": "keyword"
+        },
+        "last_uninstall_date": {
+          "type": "date"
+        },
+        "last_uninstall_set": {
+          "type": "keyword"
+        },
+        "uninstalled": {
+          "type": "keyword"
+        }
+      }
+    },
+    "csp": {
+      "properties": {
+        "strict": {
+          "type": "boolean"
+        },
+        "warnLegacyBrowsers": {
+          "type": "boolean"
+        },
+        "rulesChangedFromDefault": {
+          "type": "boolean"
+        }
+      }
+    },
+    "telemetry": {
+      "properties": {
+        "opt_in_status": {
+          "type": "boolean"
+        },
+        "usage_fetcher": {
+          "type": "keyword"
+        },
+        "last_reported": {
+          "type": "long"
+        }
+      }
+    },
+    "tsvb-validation": {
+      "properties": {
+        "failed_validations": {
+          "type": "long"
+        }
+      }
+    }
+  }
+}

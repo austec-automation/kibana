@@ -36,22 +36,14 @@ export const UUID_7_6_0_BUG = `ce42b997-a913-4d58-be46-bb1937feedd6`;
 
 export async function resolveInstanceUuid({
   configService,
-  syncToFile,
   logger,
 }: {
   configService: IConfigService;
-  syncToFile: boolean;
   logger: Logger;
 }): Promise<string> {
   const [pathConfig, serverConfig] = await Promise.all([
-    configService
-      .atPath<PathConfigType>(pathConfigDef.path)
-      .pipe(take(1))
-      .toPromise(),
-    configService
-      .atPath<HttpConfigType>(httpConfigDef.path)
-      .pipe(take(1))
-      .toPromise(),
+    configService.atPath<PathConfigType>(pathConfigDef.path).pipe(take(1)).toPromise(),
+    configService.atPath<HttpConfigType>(httpConfigDef.path).pipe(take(1)).toPromise(),
   ]);
 
   const uuidFilePath = join(pathConfig.data, FILE_NAME);
@@ -71,7 +63,7 @@ export async function resolveInstanceUuid({
       } else {
         logger.debug(`Updating Kibana instance UUID to: ${uuidFromConfig} (was: ${uuidFromFile})`);
       }
-      await writeUuidToFile(uuidFilePath, uuidFromConfig, syncToFile);
+      await writeUuidToFile(uuidFilePath, uuidFromConfig);
       return uuidFromConfig;
     }
   }
@@ -79,7 +71,7 @@ export async function resolveInstanceUuid({
     const newUuid = uuid.v4();
     // no uuid either in config or file, we need to generate and write it.
     logger.debug(`Setting new Kibana instance UUID: ${newUuid}`);
-    await writeUuidToFile(uuidFilePath, newUuid, syncToFile);
+    await writeUuidToFile(uuidFilePath, newUuid);
     return newUuid;
   }
 
@@ -111,11 +103,7 @@ async function readUuidFromFile(filepath: string, logger: Logger): Promise<strin
   }
 }
 
-async function writeUuidToFile(filepath: string, uuidValue: string, syncToFile: boolean) {
-  if (!syncToFile) {
-    return;
-  }
-
+async function writeUuidToFile(filepath: string, uuidValue: string) {
   try {
     return await writeFile(filepath, uuidValue, { encoding: FILE_ENCODING });
   } catch (e) {

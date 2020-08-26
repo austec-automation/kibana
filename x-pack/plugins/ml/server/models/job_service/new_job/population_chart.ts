@@ -5,12 +5,9 @@
  */
 
 import { get } from 'lodash';
-import {
-  AggFieldNamePair,
-  EVENT_RATE_FIELD_ID,
-} from '../../../../../../legacy/plugins/ml/common/types/fields';
-import { callWithRequestType } from '../../../../../../legacy/plugins/ml/common/types/kibana';
-import { ML_MEDIAN_PERCENTS } from '../../../../../../legacy/plugins/ml/common/util/job_utils';
+import { ILegacyScopedClusterClient } from 'kibana/server';
+import { AggFieldNamePair, EVENT_RATE_FIELD_ID } from '../../../../common/types/fields';
+import { ML_MEDIAN_PERCENTS } from '../../../../common/util/job_utils';
 
 const OVER_FIELD_EXAMPLES_COUNT = 40;
 
@@ -32,7 +29,7 @@ interface ProcessedResults {
   totalResults: number;
 }
 
-export function newJobPopulationChartProvider(callWithRequest: callWithRequestType) {
+export function newJobPopulationChartProvider({ callAsCurrentUser }: ILegacyScopedClusterClient) {
   async function newJobPopulationChart(
     indexPatternTitle: string,
     timeField: string,
@@ -55,10 +52,10 @@ export function newJobPopulationChartProvider(callWithRequest: callWithRequestTy
     );
 
     try {
-      const results = await callWithRequest('search', json);
+      const results = await callAsCurrentUser('search', json);
       return processSearchResults(
         results,
-        aggFieldNamePairs.map(af => af.field)
+        aggFieldNamePairs.map((af) => af.field)
       );
     } catch (error) {
       return { error };
@@ -161,6 +158,14 @@ function getPopulationSearchJsonFromConfig(
       },
     },
   };
+
+  if (query.bool === undefined) {
+    query.bool = {
+      must: [],
+    };
+  } else if (query.bool.must === undefined) {
+    query.bool.must = [];
+  }
 
   query.bool.must.push({
     range: {

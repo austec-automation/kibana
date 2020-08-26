@@ -17,8 +17,9 @@
  * under the License.
  */
 
+import { GetConfigFn } from '../types';
 import { FieldFormat } from './field_format';
-export { FieldFormat };
+import { FieldFormatsRegistry } from './field_formats_registry';
 
 /** @public **/
 export type FieldFormatsContentType = 'html' | 'text';
@@ -73,7 +74,7 @@ export interface FieldFormatConfig {
   es?: boolean;
 }
 
-export type FieldFormatsGetConfigFn = <T = any>(key: string, defaultOverride?: T) => T;
+export type FieldFormatsGetConfigFn = GetConfigFn;
 
 export type IFieldFormat = PublicMethodsOf<FieldFormat>;
 
@@ -82,10 +83,12 @@ export type IFieldFormat = PublicMethodsOf<FieldFormat>;
  */
 export type FieldFormatId = FIELD_FORMAT_IDS | string;
 
-export type IFieldFormatType = (new (
+/** @internal **/
+export type FieldFormatInstanceType = (new (
   params?: any,
   getConfig?: FieldFormatsGetConfigFn
 ) => FieldFormat) & {
+  // Static properties:
   id: FieldFormatId;
   title: string;
   fieldType: string | string[];
@@ -99,3 +102,5 @@ export interface IFieldFormatMetaParams {
     basePath?: string;
   };
 }
+
+export type FieldFormatsStartCommon = Omit<FieldFormatsRegistry, 'init' & 'register'>;

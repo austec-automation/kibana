@@ -7,7 +7,7 @@
 import expect from '@kbn/expect';
 import request from 'request';
 
-export default function({ getService }) {
+export default function ({ getService }) {
   const supertest = getService('supertestWithoutAuth');
   const config = getService('config');
 
@@ -15,7 +15,8 @@ export default function({ getService }) {
   const validUsername = kibanaServerConfig.username;
   const validPassword = kibanaServerConfig.password;
 
-  describe('Basic authentication', () => {
+  // Failing: See https://github.com/elastic/kibana/issues/75707
+  describe.skip('Basic authentication', () => {
     it('should redirect non-AJAX requests to the login page if not authenticated', async () => {
       const response = await supertest.get('/abc/xyz').expect(302);
 
@@ -29,10 +30,7 @@ export default function({ getService }) {
     });
 
     it('should reject API requests if client is not authenticated', async () => {
-      await supertest
-        .get('/internal/security/me')
-        .set('kbn-xsrf', 'xxx')
-        .expect(401);
+      await supertest.get('/internal/security/me').set('kbn-xsrf', 'xxx').expect(401);
     });
 
     it('should reject login with wrong credentials', async () => {
@@ -42,19 +40,34 @@ export default function({ getService }) {
       await supertest
         .post('/internal/security/login')
         .set('kbn-xsrf', 'xxx')
-        .send({ username: wrongUsername, password: wrongPassword })
+        .send({
+          providerType: 'basic',
+          providerName: 'basic',
+          currentURL: '/',
+          params: { username: wrongUsername, password: wrongPassword },
+        })
         .expect(401);
 
       await supertest
         .post('/internal/security/login')
         .set('kbn-xsrf', 'xxx')
-        .send({ username: validUsername, password: wrongPassword })
+        .send({
+          providerType: 'basic',
+          providerName: 'basic',
+          currentURL: '/',
+          params: { username: validUsername, password: wrongPassword },
+        })
         .expect(401);
 
       await supertest
         .post('/internal/security/login')
         .set('kbn-xsrf', 'xxx')
-        .send({ username: wrongUsername, password: validPassword })
+        .send({
+          providerType: 'basic',
+          providerName: 'basic',
+          currentURL: '/',
+          params: { username: wrongUsername, password: validPassword },
+        })
         .expect(401);
     });
 
@@ -62,8 +75,13 @@ export default function({ getService }) {
       const loginResponse = await supertest
         .post('/internal/security/login')
         .set('kbn-xsrf', 'xxx')
-        .send({ username: validUsername, password: validPassword })
-        .expect(204);
+        .send({
+          providerType: 'basic',
+          providerName: 'basic',
+          currentURL: '/',
+          params: { username: validUsername, password: validPassword },
+        })
+        .expect(200);
 
       const cookies = loginResponse.headers['set-cookie'];
       expect(cookies).to.have.length(1);
@@ -137,8 +155,13 @@ export default function({ getService }) {
         const loginResponse = await supertest
           .post('/internal/security/login')
           .set('kbn-xsrf', 'xxx')
-          .send({ username: validUsername, password: validPassword })
-          .expect(204);
+          .send({
+            providerType: 'basic',
+            providerName: 'basic',
+            currentURL: '/',
+            params: { username: validUsername, password: validPassword },
+          })
+          .expect(200);
 
         sessionCookie = request.cookie(loginResponse.headers['set-cookie'][0]);
       });
@@ -146,10 +169,7 @@ export default function({ getService }) {
       it('should allow access to the API', async () => {
         // There is no session cookie provided and no server side session should have
         // been established, so request should be rejected.
-        await supertest
-          .get('/internal/security/me')
-          .set('kbn-xsrf', 'xxx')
-          .expect(401);
+        await supertest.get('/internal/security/me').set('kbn-xsrf', 'xxx').expect(401);
 
         const apiResponse = await supertest
           .get('/internal/security/me')

@@ -24,7 +24,7 @@ describe('SavedObjects /_migrate endpoint', () => {
   let root: ReturnType<typeof kbnTestServer.createRoot>;
 
   beforeEach(async () => {
-    root = kbnTestServer.createRoot({ migrations: { skip: true } });
+    root = kbnTestServer.createRoot({ migrations: { skip: true }, plugins: { initialize: false } });
     await root.setup();
     await root.start();
     migratorInstanceMock.runMigrations.mockClear();
@@ -35,27 +35,18 @@ describe('SavedObjects /_migrate endpoint', () => {
   });
 
   it('calls runMigrations on the migrator with rerun=true when accessed', async () => {
-    await kbnTestServer.request
-      .post(root, '/internal/saved_objects/_migrate')
-      .send({})
-      .expect(200);
+    await kbnTestServer.request.post(root, '/internal/saved_objects/_migrate').send({}).expect(200);
 
     expect(migratorInstanceMock.runMigrations).toHaveBeenCalledTimes(1);
     expect(migratorInstanceMock.runMigrations).toHaveBeenCalledWith({ rerun: true });
   });
 
   it('calls runMigrations multiple time when multiple access', async () => {
-    await kbnTestServer.request
-      .post(root, '/internal/saved_objects/_migrate')
-      .send({})
-      .expect(200);
+    await kbnTestServer.request.post(root, '/internal/saved_objects/_migrate').send({}).expect(200);
 
     expect(migratorInstanceMock.runMigrations).toHaveBeenCalledTimes(1);
 
-    await kbnTestServer.request
-      .post(root, '/internal/saved_objects/_migrate')
-      .send({})
-      .expect(200);
+    await kbnTestServer.request.post(root, '/internal/saved_objects/_migrate').send({}).expect(200);
 
     expect(migratorInstanceMock.runMigrations).toHaveBeenCalledTimes(2);
   });

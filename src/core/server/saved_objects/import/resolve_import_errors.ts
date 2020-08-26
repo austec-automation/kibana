@@ -26,8 +26,15 @@ import {
   SavedObjectsResolveImportErrorsOptions,
 } from './types';
 import { validateReferences } from './validate_references';
+import { omitVersion } from './import_saved_objects';
 
-export async function resolveImportErrors({
+/**
+ * Resolve and return saved object import errors.
+ * See the {@link SavedObjectsResolveImportErrorsOptions | options} for more detailed informations.
+ *
+ * @public
+ */
+export async function resolveSavedObjectsImportErrors({
   readStream,
   objectLimit,
   retries,
@@ -85,7 +92,7 @@ export async function resolveImportErrors({
   // Bulk create in two batches, overwrites and non-overwrites
   const { objectsToOverwrite, objectsToNotOverwrite } = splitOverwrites(filteredObjects, retries);
   if (objectsToOverwrite.length) {
-    const bulkCreateResult = await savedObjectsClient.bulkCreate(objectsToOverwrite, {
+    const bulkCreateResult = await savedObjectsClient.bulkCreate(omitVersion(objectsToOverwrite), {
       overwrite: true,
       namespace,
     });
@@ -93,17 +100,20 @@ export async function resolveImportErrors({
       ...errorAccumulator,
       ...extractErrors(bulkCreateResult.saved_objects, objectsToOverwrite),
     ];
-    successCount += bulkCreateResult.saved_objects.filter(obj => !obj.error).length;
+    successCount += bulkCreateResult.saved_objects.filter((obj) => !obj.error).length;
   }
   if (objectsToNotOverwrite.length) {
-    const bulkCreateResult = await savedObjectsClient.bulkCreate(objectsToNotOverwrite, {
-      namespace,
-    });
+    const bulkCreateResult = await savedObjectsClient.bulkCreate(
+      omitVersion(objectsToNotOverwrite),
+      {
+        namespace,
+      }
+    );
     errorAccumulator = [
       ...errorAccumulator,
       ...extractErrors(bulkCreateResult.saved_objects, objectsToNotOverwrite),
     ];
-    successCount += bulkCreateResult.saved_objects.filter(obj => !obj.error).length;
+    successCount += bulkCreateResult.saved_objects.filter((obj) => !obj.error).length;
   }
 
   return {

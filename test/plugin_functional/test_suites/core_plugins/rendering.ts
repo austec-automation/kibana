@@ -32,16 +32,15 @@ declare global {
   }
 }
 
-// eslint-disable-next-line import/no-default-export
-export default function({ getService, getPageObjects }: PluginFunctionalProviderContext) {
+export default function ({ getService, getPageObjects }: PluginFunctionalProviderContext) {
   const PageObjects = getPageObjects(['common']);
   const appsMenu = getService('appsMenu');
   const browser = getService('browser');
   const find = getService('find');
   const testSubjects = getService('testSubjects');
 
-  const navigateTo = (path: string) =>
-    browser.navigateTo(`${PageObjects.common.getHostPort()}${path}`);
+  const navigateTo = async (path: string) =>
+    await browser.navigateTo(`${PageObjects.common.getHostPort()}${path}`);
   const navigateToApp = async (title: string) => {
     await appsMenu.clickLink(title);
     return browser.execute(() => {
@@ -103,42 +102,6 @@ export default function({ getService, getPageObjects }: PluginFunctionalProvider
       await find.waitForElementStale(loadingMessage);
 
       expect(await exists('renderingHeader')).to.be(true);
-    });
-
-    it('renders "legacy" application', async () => {
-      await navigateTo('/render/legacy_app');
-
-      const [loadingMessage, legacyMode, userSettings] = await Promise.all([
-        findLoadingMessage(),
-        getLegacyMode(),
-        getUserSettings(),
-      ]);
-
-      expect(legacyMode).to.be(true);
-      expect(userSettings).to.not.be.empty();
-
-      await find.waitForElementStale(loadingMessage);
-
-      expect(await exists('legacyAppH1')).to.be(true);
-      expect(await exists('renderingHeader')).to.be(false);
-    });
-
-    it('renders "legacy" application without user settings', async () => {
-      await navigateTo('/render/legacy_app?includeUserSettings=false');
-
-      const [loadingMessage, legacyMode, userSettings] = await Promise.all([
-        findLoadingMessage(),
-        getLegacyMode(),
-        getUserSettings(),
-      ]);
-
-      expect(legacyMode).to.be(true);
-      expect(userSettings).to.be.empty();
-
-      await find.waitForElementStale(loadingMessage);
-
-      expect(await exists('legacyAppH1')).to.be(true);
-      expect(await exists('renderingHeader')).to.be(false);
     });
 
     it('navigates between standard application and one with custom appRoute', async () => {

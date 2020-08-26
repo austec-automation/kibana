@@ -8,7 +8,8 @@ import { CoreSetup, CoreStart, Plugin } from 'src/core/public';
 import { DataPublicPluginSetup, DataPublicPluginStart } from '../../../../src/plugins/data/public';
 import { setAutocompleteService } from './services';
 import { setupKqlQuerySuggestionProvider, KUERY_LANGUAGE_NAME } from './autocomplete';
-import { ASYNC_SEARCH_STRATEGY, asyncSearchStrategyProvider } from './search';
+
+import { EnhancedSearchInterceptor } from './search/search_interceptor';
 
 export interface DataEnhancedSetupDependencies {
   data: DataPublicPluginSetup;
@@ -20,15 +21,33 @@ export interface DataEnhancedStartDependencies {
 export type DataEnhancedSetup = ReturnType<DataEnhancedPlugin['setup']>;
 export type DataEnhancedStart = ReturnType<DataEnhancedPlugin['start']>;
 
-export class DataEnhancedPlugin implements Plugin {
-  constructor() {}
-
-  public setup(core: CoreSetup, { data }: DataEnhancedSetupDependencies) {
+export class DataEnhancedPlugin
+  implements Plugin<void, void, DataEnhancedSetupDependencies, DataEnhancedStartDependencies> {
+  public setup(
+    core: CoreSetup<DataEnhancedStartDependencies>,
+    { data }: DataEnhancedSetupDependencies
+  ) {
     data.autocomplete.addQuerySuggestionProvider(
       KUERY_LANGUAGE_NAME,
       setupKqlQuerySuggestionProvider(core)
     );
-    data.search.registerSearchStrategyProvider(ASYNC_SEARCH_STRATEGY, asyncSearchStrategyProvider);
+
+    const enhancedSearchInterceptor = new EnhancedSearchInterceptor(
+      {
+        toasts: core.notifications.toasts,
+        http: core.http,
+        uiSettings: core.uiSettings,
+        startServices: core.getStartServices(),
+        usageCollector: data.search.usageCollector,
+      },
+      core.injectedMetadata.getInjectedVar('esRequestTimeout') as number
+    );
+
+    data.__enhance({
+      search: {
+        searchInterceptor: enhancedSearchInterceptor,
+      },
+    });
   }
 
   public start(core: CoreStart, plugins: DataEnhancedStartDependencies) {

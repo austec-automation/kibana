@@ -79,3 +79,27 @@ export const mockUuidService = uuidServiceMock.create();
 jest.doMock('./uuid/uuid_service', () => ({
   UuidService: jest.fn(() => mockUuidService),
 }));
+
+import { metricsServiceMock } from './metrics/metrics_service.mock';
+export const mockMetricsService = metricsServiceMock.create();
+jest.doMock('./metrics/metrics_service', () => ({
+  MetricsService: jest.fn(() => mockMetricsService),
+}));
+
+import { statusServiceMock } from './status/status_service.mock';
+export const mockStatusService = statusServiceMock.create();
+jest.doMock('./status/status_service', () => ({
+  StatusService: jest.fn(() => mockStatusService),
+}));
+
+import { loggingServiceMock } from './logging/logging_service.mock';
+export const mockLoggingService = loggingServiceMock.create();
+jest.doMock('./logging/logging_service', () => ({
+  LoggingService: jest.fn(() => mockLoggingService),
+}));
+
+import { auditTrailServiceMock } from './audit_trail/audit_trail_service.mock';
+export const mockAuditTrailService = auditTrailServiceMock.create();
+jest.doMock('./audit_trail/audit_trail_service', () => ({
+  AuditTrailService: jest.fn(() => mockAuditTrailService),
+}));

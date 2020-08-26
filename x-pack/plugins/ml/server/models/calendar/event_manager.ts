@@ -4,9 +4,8 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-import Boom from 'boom';
-
-import { GLOBAL_CALENDAR } from '../../../../../legacy/plugins/ml/common/constants/calendars';
+import { ILegacyScopedClusterClient } from 'kibana/server';
+import { GLOBAL_CALENDAR } from '../../../common/constants/calendars';
 
 export interface CalendarEvent {
   calendar_id?: string;
@@ -17,51 +16,39 @@ export interface CalendarEvent {
 }
 
 export class EventManager {
-  private _client: any;
-  constructor(client: any) {
-    this._client = client;
+  private _callAsInternalUser: ILegacyScopedClusterClient['callAsInternalUser'];
+  constructor({ callAsInternalUser }: ILegacyScopedClusterClient) {
+    this._callAsInternalUser = callAsInternalUser;
   }
 
   async getCalendarEvents(calendarId: string) {
-    try {
-      const resp = await this._client('ml.events', { calendarId });
+    const resp = await this._callAsInternalUser('ml.events', { calendarId });
 
-      return resp.events;
-    } catch (error) {
-      throw Boom.badRequest(error);
-    }
+    return resp.events;
   }
 
   // jobId is optional
   async getAllEvents(jobId?: string) {
     const calendarId = GLOBAL_CALENDAR;
-    try {
-      const resp = await this._client('ml.events', {
-        calendarId,
-        jobId,
-      });
+    const resp = await this._callAsInternalUser('ml.events', {
+      calendarId,
+      jobId,
+    });
 
-      return resp.events;
-    } catch (error) {
-      throw Boom.badRequest(error);
-    }
+    return resp.events;
   }
 
   async addEvents(calendarId: string, events: CalendarEvent[]) {
     const body = { events };
 
-    try {
-      return await this._client('ml.addEvent', {
-        calendarId,
-        body,
-      });
-    } catch (error) {
-      throw Boom.badRequest(error);
-    }
+    return await this._callAsInternalUser('ml.addEvent', {
+      calendarId,
+      body,
+    });
   }
 
   async deleteEvent(calendarId: string, eventId: string) {
-    return this._client('ml.deleteEvent', { calendarId, eventId });
+    return this._callAsInternalUser('ml.deleteEvent', { calendarId, eventId });
   }
 
   isEqual(ev1: CalendarEvent, ev2: CalendarEvent) {

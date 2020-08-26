@@ -5,11 +5,11 @@
  */
 
 import { Request, Server } from 'hapi';
-import { PLUGIN } from '../../../legacy/plugins/uptime/common/constants';
-import { KibanaTelemetryAdapter } from './lib/adapters/telemetry';
+import { PLUGIN } from '../common/constants/plugin';
 import { compose } from './lib/compose/kibana';
 import { initUptimeServer } from './uptime_server';
 import { UptimeCorePlugins, UptimeCoreSetup } from './lib/adapters/framework';
+import { umDynamicSettings } from './lib/saved_objects';
 
 export interface KibanaRouteOptions {
   path: string;
@@ -24,36 +24,56 @@ export interface KibanaServer extends Server {
 }
 
 export const initServerWithKibana = (server: UptimeCoreSetup, plugins: UptimeCorePlugins) => {
-  const { features, usageCollection } = plugins;
+  const { features } = plugins;
   const libs = compose(server);
-  KibanaTelemetryAdapter.registerUsageCollector(usageCollection);
 
   features.registerFeature({
     id: PLUGIN.ID,
     name: PLUGIN.NAME,
+    order: 1000,
     navLinkId: PLUGIN.ID,
     icon: 'uptimeApp',
     app: ['uptime', 'kibana'],
     catalogue: ['uptime'],
+    management: {
+      insightsAndAlerting: ['triggersActions'],
+    },
+    alerting: ['xpack.uptime.alerts.tls', 'xpack.uptime.alerts.monitorStatus'],
     privileges: {
       all: {
-        api: ['uptime'],
+        app: ['uptime', 'kibana'],
+        catalogue: ['uptime'],
+        api: ['uptime-read', 'uptime-write'],
         savedObject: {
-          all: [],
+          all: [umDynamicSettings.name, 'alert'],
           read: [],
         },
-        ui: ['save'],
+        alerting: {
+          all: ['xpack.uptime.alerts.tls', 'xpack.uptime.alerts.monitorStatus'],
+        },
+        management: {
+          insightsAndAlerting: ['triggersActions'],
+        },
+        ui: ['save', 'configureSettings', 'show'],
       },
       read: {
-        api: ['uptime'],
+        app: ['uptime', 'kibana'],
+        catalogue: ['uptime'],
+        api: ['uptime-read'],
         savedObject: {
-          all: [],
-          read: [],
+          all: ['alert'],
+          read: [umDynamicSettings.name],
         },
-        ui: [],
+        alerting: {
+          all: ['xpack.uptime.alerts.tls', 'xpack.uptime.alerts.monitorStatus'],
+        },
+        management: {
+          insightsAndAlerting: ['triggersActions'],
+        },
+        ui: ['show'],
       },
     },
   });
 
-  initUptimeServer(libs);
+  initUptimeServer(server, libs, plugins);
 };

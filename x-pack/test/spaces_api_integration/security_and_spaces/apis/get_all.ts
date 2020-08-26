@@ -20,6 +20,7 @@ export default function getAllSpacesTestSuite({ getService }: TestInvoker) {
   );
 
   describe('get all', () => {
+    /* eslint-disable @typescript-eslint/naming-convention */
     [
       {
         spaceId: SPACES.DEFAULT.spaceId,
@@ -73,7 +74,8 @@ export default function getAllSpacesTestSuite({ getService }: TestInvoker) {
           monitoringUser: AUTHENTICATION.MONITORING_USER,
         },
       },
-    ].forEach(scenario => {
+      /* eslint-enable @typescript-eslint/naming-convention */
+    ].forEach((scenario) => {
       getAllTest(`user with no access can't access any spaces from ${scenario.spaceId}`, {
         spaceId: scenario.spaceId,
         user: scenario.users.noAccess,

@@ -4,14 +4,15 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-import { APICaller, CoreSetup } from 'kibana/server';
+import { LegacyAPICaller } from 'kibana/server';
 
 import { of } from 'rxjs';
+import moment from 'moment';
+import { elasticsearchServiceMock } from '../../../../../src/core/server/mocks';
 import {
   ConcreteTaskInstance,
   TaskStatus,
   TaskManagerStartContract,
-  // eslint-disable-next-line @kbn/eslint/no-restricted-paths
 } from '../../../task_manager/server';
 
 export const getMockTaskInstance = (
@@ -37,28 +38,34 @@ const defaultMockSavedObjects = [
     _source: {
       type: 'visualization',
       visualization: { visState: '{"type": "shell_beads"}' },
+      updated_at: moment().subtract(7, 'days').startOf('day').toString(),
     },
   },
 ];
 
 const defaultMockTaskDocs = [getMockTaskInstance()];
 
-export const getMockEs = (mockCallWithInternal: APICaller = getMockCallWithInternal()) =>
-  (({
-    createClient: () => ({ callAsInternalUser: mockCallWithInternal }),
-  } as unknown) as CoreSetup['elasticsearch']);
+export const getMockEs = async (
+  mockCallWithInternal: LegacyAPICaller = getMockCallWithInternal()
+) => {
+  const client = elasticsearchServiceMock.createLegacyClusterClient();
+  (client.callAsInternalUser as any) = mockCallWithInternal;
+  return client;
+};
 
-export const getMockCallWithInternal = (hits: unknown[] = defaultMockSavedObjects): APICaller => {
+export const getMockCallWithInternal = (
+  hits: unknown[] = defaultMockSavedObjects
+): LegacyAPICaller => {
   return ((() => {
     return Promise.resolve({ hits: { hits } });
-  }) as unknown) as APICaller;
+  }) as unknown) as LegacyAPICaller;
 };
 
 export const getMockTaskFetch = (
   docs: ConcreteTaskInstance[] = defaultMockTaskDocs
 ): Partial<jest.Mocked<TaskManagerStartContract>> => {
   return {
-    fetch: jest.fn(fetchOpts => {
+    fetch: jest.fn((fetchOpts) => {
       return Promise.resolve({ docs, searchAfter: [] });
     }),
   } as Partial<jest.Mocked<TaskManagerStartContract>>;
@@ -68,7 +75,7 @@ export const getMockThrowingTaskFetch = (
   throws: Error
 ): Partial<jest.Mocked<TaskManagerStartContract>> => {
   return {
-    fetch: jest.fn(fetchOpts => {
+    fetch: jest.fn((fetchOpts) => {
       throw throws;
     }),
   } as Partial<jest.Mocked<TaskManagerStartContract>>;
